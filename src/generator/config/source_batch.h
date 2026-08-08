@@ -13,9 +13,9 @@ struct SourceBatchResult
     size_t failed_source_index;
 };
 
-// Load every source into an isolated staging vector. The destination is only
-// replaced after the full batch succeeds, so a failed or throwing source can
-// never expose nodes loaded from earlier sources.
+// Load every source into an isolated staging vector. Every source must add at
+// least one item, and the destination is only replaced after the full batch
+// succeeds, so a failed or throwing source cannot expose a partial result.
 template<typename Item, typename Loader>
 SourceBatchResult loadSourcesAtomically(const string_array &sources, std::vector<Item> &destination, Loader &&loader)
 {
@@ -24,7 +24,8 @@ SourceBatchResult loadSourcesAtomically(const string_array &sources, std::vector
     {
         try
         {
-            if(loader(sources[source_index], staged, source_index) != 0)
+            const size_t size_before = staged.size();
+            if(loader(sources[source_index], staged, source_index) != 0 || staged.size() <= size_before)
                 return {false, source_index};
         }
         catch(...)

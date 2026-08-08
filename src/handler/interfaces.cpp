@@ -7,6 +7,7 @@
 
 #include "config/binding.h"
 #include "config/service_policy.h"
+#include "config/source_group.h"
 #include "generator/config/nodemanip.h"
 #include "generator/config/ruleconvert.h"
 #include "generator/config/source_batch.h"
@@ -756,6 +757,9 @@ std::string subconverter(RESPONSE_CALLBACK_ARGS)
 
     //do pre-process now
     preprocessNodes(nodes, ext);
+
+    if(!ext.nodelist && (argTarget == "clash" || argTarget == "clashr"))
+        source_group::enforce(urls.size(), nodes, lCustomProxyGroups);
 
     /*
     //insert node info to template

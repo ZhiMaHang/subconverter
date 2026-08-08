@@ -211,6 +211,8 @@ https://airport-a.example/subscription
 https://airport-b.example/subscription
 ```
 
+生成完整的 Clash/ClashR 配置时，每个输入项都会按顺序生成一个独立的 `来源 N` 选择组。单节点链接只包含该节点，机场订阅则包含该订阅解析出的全部节点；其他可选代理组都会加入这些来源组。任一输入下载、解析失败或没有产生节点时，整个请求失败，不返回缺少来源的部分配置。
+
 换行在请求 URL 中会编码为 `%0A`。生成配置的默认自动更新间隔是 24 小时（`config_update_interval = 86400`）；每次客户端更新时都会重新拉取机场订阅（受 `cache_subscription` 缓存时间限制）。原有 `|` 方式仍然兼容：
 
 ```txt

@@ -35,6 +35,9 @@ struct ProxyGroupConfig
     Boolean DisableUdp;
     Boolean Persistent;
     Boolean EvaluateBeforeUse;
+    // Internal marker for request-scoped groups generated from input sources.
+    // It is intentionally not part of the external configuration bindings.
+    bool GeneratedSourceGroup = false;
 
     String TypeStr() const
     {
