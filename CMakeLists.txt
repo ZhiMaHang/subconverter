@@ -21,6 +21,7 @@ OPTION(USING_MALLOC_TRIM "Call malloc_trim after processing request to lower mem
 #now using internal MD5 calculation
 #OPTION(USING_MBEDTLS "Use mbedTLS instead of OpenSSL for MD5 calculation." OFF)
 OPTION(BUILD_STATIC_LIBRARY "Build a static library containing only the essential part." OFF)
+OPTION(SUBCONVERTER_BUILD_TESTS "Build subconverter regression tests (requires BUILD_STATIC_LIBRARY)." OFF)
 
 INCLUDE(CheckCXXSourceCompiles)
 CHECK_CXX_SOURCE_COMPILES(
@@ -163,4 +164,28 @@ ENDIF()
 
 IF(USING_MALLOC_TRIM)
     TARGET_COMPILE_DEFINITIONS(${BUILD_TARGET_NAME} PRIVATE -DMALLOC_TRIM)
+ENDIF()
+
+IF(SUBCONVERTER_BUILD_TESTS)
+    IF(NOT BUILD_STATIC_LIBRARY)
+        MESSAGE(FATAL_ERROR "SUBCONVERTER_BUILD_TESTS requires BUILD_STATIC_LIBRARY=ON")
+    ENDIF()
+    ENABLE_TESTING()
+    ADD_EXECUTABLE(subconverter_vless_tests tests/vless_test.cpp)
+    TARGET_COMPILE_DEFINITIONS(subconverter_vless_tests PRIVATE -DNO_JS_RUNTIME -DNO_WEBGET)
+    TARGET_INCLUDE_DIRECTORIES(subconverter_vless_tests PRIVATE ${RAPIDJSON_INCLUDE_DIRS} ${YAML_CPP_INCLUDE_DIRS})
+    TARGET_LINK_LIBRARIES(subconverter_vless_tests PRIVATE ${BUILD_TARGET_NAME})
+    ADD_TEST(NAME subconverter_vless_tests COMMAND subconverter_vless_tests)
+
+    ADD_EXECUTABLE(subconverter_clash_doh_tests tests/clash_doh_rule_test.cpp)
+    TARGET_COMPILE_DEFINITIONS(subconverter_clash_doh_tests PRIVATE -DNO_JS_RUNTIME -DNO_WEBGET)
+    TARGET_INCLUDE_DIRECTORIES(subconverter_clash_doh_tests PRIVATE ${RAPIDJSON_INCLUDE_DIRS} ${YAML_CPP_INCLUDE_DIRS})
+    TARGET_LINK_LIBRARIES(subconverter_clash_doh_tests PRIVATE ${BUILD_TARGET_NAME})
+    ADD_TEST(NAME subconverter_clash_doh_tests COMMAND subconverter_clash_doh_tests)
+
+    ADD_EXECUTABLE(subconverter_mixed_subscription_tests tests/mixed_subscription_test.cpp)
+    TARGET_COMPILE_DEFINITIONS(subconverter_mixed_subscription_tests PRIVATE -DNO_JS_RUNTIME -DNO_WEBGET)
+    TARGET_INCLUDE_DIRECTORIES(subconverter_mixed_subscription_tests PRIVATE ${RAPIDJSON_INCLUDE_DIRS} ${YAML_CPP_INCLUDE_DIRS})
+    TARGET_LINK_LIBRARIES(subconverter_mixed_subscription_tests PRIVATE ${BUILD_TARGET_NAME})
+    ADD_TEST(NAME subconverter_mixed_subscription_tests COMMAND subconverter_mixed_subscription_tests)
 ENDIF()

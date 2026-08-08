@@ -122,6 +122,62 @@ static std::string transformRuleToCommon(string_view_array &temp, const std::str
     return strLine;
 }
 
+static bool clashRuleMatches(const std::string &rule, const std::string &type, const std::string &value = "")
+{
+    string_view_array fields;
+    split(fields, rule, ',');
+    if(fields.empty() || toUpper(trim(std::string(fields[0]))) != type)
+        return false;
+    return value.empty() || (fields.size() > 1 && toUpper(trim(std::string(fields[1]))) == value);
+}
+
+void enforceClashDoHRule(std::vector<std::string> &rules)
+{
+    static const std::string doh_rule = "GEOIP,CN,DIRECT,no-resolve";
+    string_array normalized_rules;
+    normalized_rules.reserve(rules.size() + 1);
+    size_t insertion_index = std::string::npos;
+
+    for(const std::string &rule : rules)
+    {
+        if(clashRuleMatches(rule, "GEOIP", "CN"))
+        {
+            if(insertion_index == std::string::npos)
+                insertion_index = normalized_rules.size();
+            continue;
+        }
+        normalized_rules.emplace_back(rule);
+    }
+
+    auto terminal_rule = std::find_if(normalized_rules.cbegin(), normalized_rules.cend(), [](const std::string &rule)
+    {
+        return clashRuleMatches(rule, "MATCH") || clashRuleMatches(rule, "FINAL");
+    });
+    const size_t terminal_index = static_cast<size_t>(std::distance(normalized_rules.cbegin(), terminal_rule));
+    if(insertion_index == std::string::npos || insertion_index > terminal_index)
+        insertion_index = terminal_index;
+
+    normalized_rules.insert(normalized_rules.begin() + static_cast<std::ptrdiff_t>(insertion_index), doh_rule);
+    rules.swap(normalized_rules);
+}
+
+void enforceClashDoHRule(YAML::Node &base_rule, bool new_field_name)
+{
+    const std::string field_name = new_field_name ? "rules" : "Rule";
+    string_array rules;
+    if(base_rule[field_name].IsSequence())
+    {
+        for(const YAML::Node &rule : base_rule[field_name])
+            rules.emplace_back(safe_as<std::string>(rule));
+    }
+
+    enforceClashDoHRule(rules);
+    YAML::Node normalized_rules(YAML::NodeType::Sequence);
+    for(const std::string &rule : rules)
+        normalized_rules.push_back(rule);
+    base_rule[field_name] = normalized_rules;
+}
+
 void rulesetToClash(YAML::Node &base_rule, std::vector<RulesetContent> &ruleset_content_array, bool overwrite_original_rules, bool new_field_name)
 {
     string_array allRules;
@@ -190,18 +246,27 @@ void rulesetToClash(YAML::Node &base_rule, std::vector<RulesetContent> &ruleset_
     base_rule[field_name] = rules;
 }
 
-std::string rulesetToClashStr(YAML::Node &base_rule, std::vector<RulesetContent> &ruleset_content_array, bool overwrite_original_rules, bool new_field_name)
+std::string rulesetToClashStr(YAML::Node &base_rule, std::vector<RulesetContent> &ruleset_content_array, bool overwrite_original_rules, bool new_field_name, bool enforce_doh_rule)
 {
     std::string rule_group, retrieved_rules, strLine;
     std::stringstream strStrm;
     const std::string field_name = new_field_name ? "rules" : "Rule";
     std::string output_content = "\n" + field_name + ":\n";
+    string_array doh_rules;
     size_t total_rules = 0;
+
+    auto append_rule = [&](const std::string &rule)
+    {
+        if(enforce_doh_rule)
+            doh_rules.emplace_back(rule);
+        else
+            output_content += "  - " + rule + "\n";
+    };
 
     if(!overwrite_original_rules && base_rule[field_name].IsDefined())
     {
         for(size_t i = 0; i < base_rule[field_name].size(); i++)
-            output_content += "  - " + safe_as<std::string>(base_rule[field_name][i]) + "\n";
+            append_rule(safe_as<std::string>(base_rule[field_name][i]));
     }
     base_rule.remove(field_name);
 
@@ -223,7 +288,7 @@ std::string rulesetToClashStr(YAML::Node &base_rule, std::vector<RulesetContent>
             if(startsWith(strLine, "FINAL"))
                 strLine.replace(0, 5, "MATCH");
             strLine = transformRuleToCommon(temp, strLine, rule_group);
-            output_content += "  - " + strLine + "\n";
+            append_rule(strLine);
             total_rules++;
             continue;
         }
@@ -249,9 +314,15 @@ std::string rulesetToClashStr(YAML::Node &base_rule, std::vector<RulesetContent>
                 strLine = trimWhitespace(strLine);
             }
             strLine = transformRuleToCommon(temp, strLine, rule_group);
-            output_content += "  - " + strLine + "\n";
+            append_rule(strLine);
             total_rules++;
         }
+    }
+    if(enforce_doh_rule)
+    {
+        enforceClashDoHRule(doh_rules);
+        for(const std::string &rule : doh_rules)
+            output_content += "  - " + rule + "\n";
     }
     return output_content;
 }

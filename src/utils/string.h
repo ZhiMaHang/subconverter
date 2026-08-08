@@ -32,6 +32,8 @@ std::string join(InputIt first, InputIt last, const std::string &delimiter)
 
 std::string getUrlArg(const std::string &url, const std::string &request);
 std::string getUrlArg(const string_multimap &args, const std::string &request);
+string_array splitUrlSources(const std::string &sources);
+string_array getUrlArgs(const string_multimap &args, const std::string &request);
 std::string replaceAllDistinct(std::string str, const std::string &old_value, const std::string &new_value);
 std::string trimOf(const std::string& str, char target, bool before = true, bool after = true);
 std::string trim(const std::string& str, bool before = true, bool after = true);

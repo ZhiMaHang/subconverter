@@ -135,22 +135,25 @@
 | Surge 4                |   ✓   |    ✓   | surge&ver=4    |
 | Trojan                 |   ✓   |    ✓   | trojan         |
 | V2Ray                  |   ✓   |    ✓   | v2ray          |
+| VLESS                  |   ✓   |    ✓   | vless          |
 | 类 TG 代理的 HTTP/Socks 链接 |   ✓   |    ×   | 仅支持 `&url=` 调用 |
 | Mixed                  |   ×   |    ✓   | mixed          |
 | Auto                   |   ×   |    ✓   | auto           |
 
 注意：
 
-1.  Shadowrocket 用户可以使用 `ss`、`ssr` 、 `v2ray` 以及 `mixed` 参数
+1.  VLESS 分享链接支持 TLS/REALITY 以及常用的 TCP、WebSocket、HTTP、HTTPUpgrade、gRPC 和 XHTTP 传输；若目标格式无法无损表达对应传输，该节点会被跳过。
 
-2.  类 TG 代理的 HTTP/Socks 链接由于没有命名设定，所以可以在后方插入`&remarks=`进行命名，同时也可以插入 `&group=` 设置组别名称，以上两个参数需要经过 [URLEncode](https://www.urlencoder.org/) 处理，例如
+2.  Shadowrocket 用户可以使用 `ss`、`ssr` 、 `v2ray` 以及 `mixed` 参数
+
+3.  类 TG 代理的 HTTP/Socks 链接由于没有命名设定，所以可以在后方插入`&remarks=`进行命名，同时也可以插入 `&group=` 设置组别名称，以上两个参数需要经过 [URLEncode](https://www.urlencoder.org/) 处理，例如
 
     -   tg://http?server=1.2.3.4&port=233&user=user&pass=pass&remarks=Example&group=xxx
     -   <https://t.me/http?server=1.2.3.4&port=233&user=user&pass=pass&remarks=Example&group=xxx>
 
-3.  目标类型为 `mixed` 时，会输出所有支持的节点的单链接组成的普通订阅（Base64编码）
+4.  目标类型为 `mixed` 时，会输出所有支持的节点的单链接组成的普通订阅（Base64编码）
 
-4.  目标类型为 `auto` 时，会根据请求的 `User-Agent` 自动判断输出的目标类型，匹配规则可参见 [此处](https://github.com/tindy2013/subconverter/blob/master/src/handler/interfaces.cpp#L121) （该链接有可能因为代码修改而不能准确指向相应的代码）
+5.  目标类型为 `auto` 时，会根据请求的 `User-Agent` 自动判断输出的目标类型，匹配规则可参见 [此处](https://github.com/tindy2013/subconverter/blob/master/src/handler/interfaces.cpp#L121) （该链接有可能因为代码修改而不能准确指向相应的代码）
 
 * * *
 
@@ -169,7 +172,7 @@ http://127.0.0.1:25500/sub?target=%TARGET%&url=%URL%&config=%CONFIG%
 | 调用参数   | 必要性 | 示例                        | 解释                                                                                                                  |
 | ------ | :-: | :------------------------ | ------------------------------------------------------------------------------------------------------------------- |
 | target |  必要 | surge&ver=4               | 指想要生成的配置类型，详见上方 [支持类型](#支持类型) 中的参数                                                                                  |
-| url    |  必要 | https%3A%2F%2Fwww.xxx.com | 指机场所提供的订阅链接或代理节点的分享链接，需要经过 [URLEncode](https://www.urlencoder.org/) 处理                                              |
+| url    |  必要 | https%3A%2F%2Fwww.xxx.com | 指机场所提供的订阅链接或代理节点的分享链接。多个来源可使用换行、`\|` 或重复的 `url` 参数分隔，随后需要经过 [URLEncode](https://www.urlencoder.org/) 处理 |
 | config |  可选 | https%3A%2F%2Fwww.xxx.com | 指 外部配置 的地址 (包含分组和规则部分)，需要经过 [URLEncode](https://www.urlencoder.org/) 处理，详见 [外部配置](#外部配置) ，当此参数不存在时使用 程序的主程序目录中的配置文件 |
 
 运行 subconverter 主程序后，按照 [调用说明](#调用说明) 的对应内容替换即可得到一份使用**默认设置**的订阅。
@@ -199,7 +202,16 @@ http://127.0.0.1:25500/sub?target=clash&url=https%3A%2F%2Fdler.cloud%2Fsubscribe
 <details>
 <summary><b>处理多份订阅</b></summary>
 
-如果你需要将多个订阅合成一份, 则要在上方所提及的 URLEncode 之前使用 '|' 来分隔链接, 可以按以下操作：
+如果你需要将多个订阅或单节点链接合成一份，可以在 URLEncode 之前每行填写一个来源，也可以继续使用 `|`，或重复传入多个 `url` 参数。以下四行会将 SSR、VLESS 和两个机场订阅中的全部节点合并：
+
+```txt
+ssr://单节点链接
+vless://单节点链接
+https://airport-a.example/subscription
+https://airport-b.example/subscription
+```
+
+换行在请求 URL 中会编码为 `%0A`。生成配置的默认自动更新间隔是 24 小时（`config_update_interval = 86400`）；每次客户端更新时都会重新拉取机场订阅（受 `cache_subscription` 缓存时间限制）。原有 `|` 方式仍然兼容：
 
 ```txt
 有以下两个订阅，且想合并转换成 Clash 的订阅:
@@ -1300,16 +1312,18 @@ clash_rule_base=base/forcerule.yml
       enabled: true
       listen: 1053
       nameserver:
-       {% if default(request.doh, "false") == "true" %}
+       {% if bool(default(request.clash.doh, "false")) %}
        - https://doh.pub/dns-query
        - https://223.5.5.5/dns-query
        {% else %}
        - 119.29.29.29
        - 223.5.5.5
        {% endif %}
-    # 如果 URL 中 doh 参数为 true 时，判断成立。
-    # 如果 URL 中不存在 doh 参数时，将 clash.doh 参数设为默认值 false 再进行判断。
+    # 如果 URL 中 clash.doh 参数为 true 或 1 时，判断成立。
+    # 如果 URL 中不存在 clash.doh 参数时，将其设为默认值 false 再进行判断。
     ```
+
+    默认 Clash 模板启用 `clash.doh=true` 或 `clash.doh=1` 时，还会将规则中的所有 `GEOIP,CN,...` 合并为一条 `GEOIP,CN,DIRECT,no-resolve`；如果原规则中不存在 `GEOIP,CN`，则在 `MATCH`/`FINAL` 规则之前插入。
 
 模板内的引用有以下几类：
 

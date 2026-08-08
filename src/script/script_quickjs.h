@@ -117,6 +117,19 @@ namespace qjs
             JS_DefinePropertyValueStr(ctx, obj, "TransferProtocol", JS_NewString(ctx, n.TransferProtocol), JS_PROP_C_W_E);
             JS_DefinePropertyValueStr(ctx, obj, "FakeType", JS_NewString(ctx, n.FakeType), JS_PROP_C_W_E);
             JS_DefinePropertyValueStr(ctx, obj, "TLSSecure", JS_NewBool(ctx, n.TLSSecure), JS_PROP_C_W_E);
+            JS_DefinePropertyValueStr(ctx, obj, "Security", JS_NewString(ctx, n.Security), JS_PROP_C_W_E);
+            JS_DefinePropertyValueStr(ctx, obj, "Flow", JS_NewString(ctx, n.Flow), JS_PROP_C_W_E);
+            JS_DefinePropertyValueStr(ctx, obj, "PacketEncoding", JS_NewString(ctx, n.PacketEncoding), JS_PROP_C_W_E);
+            JS_DefinePropertyValueStr(ctx, obj, "ClientFingerprint", JS_NewString(ctx, n.ClientFingerprint), JS_PROP_C_W_E);
+            JS_DefinePropertyValueStr(ctx, obj, "RealityPublicKey", JS_NewString(ctx, n.RealityPublicKey), JS_PROP_C_W_E);
+            JS_DefinePropertyValueStr(ctx, obj, "RealityShortId", JS_NewString(ctx, n.RealityShortId), JS_PROP_C_W_E);
+            JS_DefinePropertyValueStr(ctx, obj, "RealitySpiderX", JS_NewString(ctx, n.RealitySpiderX), JS_PROP_C_W_E);
+            JS_DefinePropertyValueStr(ctx, obj, "GRPCMode", JS_NewString(ctx, n.GRPCMode), JS_PROP_C_W_E);
+            JS_DefinePropertyValueStr(ctx, obj, "XHTTPMode", JS_NewString(ctx, n.XHTTPMode), JS_PROP_C_W_E);
+            JS_DefinePropertyValueStr(ctx, obj, "XHTTPExtra", JS_NewString(ctx, n.XHTTPExtra), JS_PROP_C_W_E);
+            JS_DefinePropertyValueStr(ctx, obj, "MaxEarlyData", JS_NewUint32(ctx, n.MaxEarlyData), JS_PROP_C_W_E);
+            JS_DefinePropertyValueStr(ctx, obj, "EarlyDataHeaderName", JS_NewString(ctx, n.EarlyDataHeaderName), JS_PROP_C_W_E);
+            JS_DefinePropertyValueStr(ctx, obj, "Alpn", js_traits<StringArray>::wrap(ctx, n.Alpn), JS_PROP_C_W_E);
 
             JS_DefinePropertyValueStr(ctx, obj, "Host", JS_NewString(ctx, n.Host), JS_PROP_C_W_E);
             JS_DefinePropertyValueStr(ctx, obj, "Path", JS_NewString(ctx, n.Path), JS_PROP_C_W_E);
@@ -172,6 +185,19 @@ namespace qjs
             node.TransferProtocol = unwrap_free<std::string>(ctx, v, "TransferProtocol");
             node.FakeType = unwrap_free<std::string>(ctx, v, "FakeType");
             node.TLSSecure = unwrap_free<bool>(ctx, v, "TLSSecure");
+            node.Security = unwrap_free<std::string>(ctx, v, "Security");
+            node.Flow = unwrap_free<std::string>(ctx, v, "Flow");
+            node.PacketEncoding = unwrap_free<std::string>(ctx, v, "PacketEncoding");
+            node.ClientFingerprint = unwrap_free<std::string>(ctx, v, "ClientFingerprint");
+            node.RealityPublicKey = unwrap_free<std::string>(ctx, v, "RealityPublicKey");
+            node.RealityShortId = unwrap_free<std::string>(ctx, v, "RealityShortId");
+            node.RealitySpiderX = unwrap_free<std::string>(ctx, v, "RealitySpiderX");
+            node.GRPCMode = unwrap_free<std::string>(ctx, v, "GRPCMode");
+            node.XHTTPMode = unwrap_free<std::string>(ctx, v, "XHTTPMode");
+            node.XHTTPExtra = unwrap_free<std::string>(ctx, v, "XHTTPExtra");
+            node.MaxEarlyData = unwrap_free<uint32_t>(ctx, v, "MaxEarlyData");
+            node.EarlyDataHeaderName = unwrap_free<std::string>(ctx, v, "EarlyDataHeaderName");
+            node.Alpn = unwrap_free<StringArray>(ctx, v, "Alpn");
 
             node.Host = unwrap_free<std::string>(ctx, v, "Host");
             node.Path = unwrap_free<std::string>(ctx, v, "Path");

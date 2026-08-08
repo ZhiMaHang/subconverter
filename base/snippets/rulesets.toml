@@ -55,6 +55,11 @@ group = "📲 电报信息"
 ruleset = "rules/DivineEngine/Surge/Ruleset/Extra/Telegram/Telegram.list"
 
 [[rulesets]]
+group = "Binance"
+ruleset = "https://cdn.jsdelivr.net/gh/blackmatrix7/ios_rule_script@master/rule/Clash/Binance/Binance.yaml"
+type = "clash-classic"
+
+[[rulesets]]
 group = "🔰 节点选择"
 ruleset = "rules/DivineEngine/Surge/Ruleset/Global.list"
 
@@ -77,4 +82,3 @@ ruleset = "[]GEOIP,CN"
 [[rulesets]]
 group = "🐟 漏网之鱼"
 ruleset = "[]FINAL"
-

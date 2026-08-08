@@ -29,6 +29,7 @@ struct extra_settings
     bool filter_deprecated = false;
     bool clash_new_field_name = false;
     bool clash_script = false;
+    bool clash_doh = false;
     std::string surge_ssr_path;
     std::string managed_config_prefix;
     std::string quanx_dev_id;

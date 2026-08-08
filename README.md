@@ -37,13 +37,16 @@ Utility to convert between various proxy subscription formats.
 | Surge 3      |     ✓      |      ✓       | surge&ver=3 |
 | Surge 4      |     ✓      |      ✓       | surge&ver=4 |
 | V2Ray        |     ✓      |      ✓       | v2ray       |
+| VLESS        |     ✓      |      ✓       | vless       |
 | Telegram-liked HTTP/Socks 5 links |     ✓      |      ×       | Only as source |
 
 Notice:
 
-1. Shadowrocket users should use `ss`, `ssr` or `v2ray` as target.
+1. VLESS share links support TLS/REALITY and common TCP, WebSocket, HTTP, HTTPUpgrade, gRPC and XHTTP transports. A node is skipped when the selected target cannot represent its transport without changing semantics.
 
-2. You can add `&remark=` to Telegram-liked HTTP/Socks 5 links to set a remark for this node. For example:
+2. Shadowrocket users should use `ss`, `ssr` or `v2ray` as target.
+
+3. You can add `&remark=` to Telegram-liked HTTP/Socks 5 links to set a remark for this node. For example:
 
    - tg://http?server=1.2.3.4&port=233&user=user&pass=pass&remark=Example
 
@@ -67,10 +70,10 @@ http://127.0.0.1:25500/sub?target=%TARGET%&url=%URL%&config=%CONFIG%
 | Argument | Required | Example | Description |
 | -------- | :------: | :------ | ----------- |
 | target   | Yes      | clash   | Target subscription type. Acquire from Target Name in [Supported Types](#supported-types). |
-| url      | Yes      | https%3A%2F%2Fwww.xxx.com | Subscription to convert. Supports URLs and file paths. Process with [URLEncode](https://www.urlencoder.org/) first. |
+| url      | Yes      | https%3A%2F%2Fwww.xxx.com | Subscription URLs or single-node links to convert. Separate multiple sources with newlines, `\|`, or repeated `url` parameters, then apply [URLEncode](https://www.urlencoder.org/). |
 | config   | No       | https%3A%2F%2Fwww.xxx.com | External configuration file path. Supports URLs and file paths. Process with [URLEncode](https://www.urlencoder.org/) first. More examples can be found in [this](https://github.com/lzdnico/subconverteriniexample) repository. |
 
-If you need to merge two or more subscription, you should join them with '|' before the URLEncode process.
+To merge subscriptions and single-node links, put one source on each line before URL encoding. Newlines become `%0A` in the request. Generated configurations use a 24-hour update interval by default (`config_update_interval = 86400`), and each client refresh fetches the airport subscriptions again subject to `cache_subscription`. The existing `|` separator and repeated `url` parameters are also supported.
 
 Example:
 

@@ -314,7 +314,7 @@ std::string subconverter(RESPONSE_CALLBACK_ARGS)
     bool lSimpleSubscription = false;
     switch(hash_(argTarget))
     {
-    case "ss"_hash: case "ssd"_hash: case "ssr"_hash: case "sssub"_hash: case "v2ray"_hash: case "trojan"_hash: case "mixed"_hash:
+    case "ss"_hash: case "ssd"_hash: case "ssr"_hash: case "sssub"_hash: case "v2ray"_hash: case "vless"_hash: case "trojan"_hash: case "mixed"_hash:
         lSimpleSubscription = true;
         break;
     case "clash"_hash: case "clashr"_hash: case "surge"_hash: case "quan"_hash: case "quanx"_hash: case "loon"_hash: case "surfboard"_hash: case "mellow"_hash: case "singbox"_hash:
@@ -328,7 +328,7 @@ std::string subconverter(RESPONSE_CALLBACK_ARGS)
         readConf();
 
     /// string values
-    std::string argUrl = getUrlArg(argument, "url");
+    std::string argUrl = join(getUrlArgs(argument, "url"), "|");
     std::string argGroupName = getUrlArg(argument, "group"), argUploadPath = getUrlArg(argument, "upload_path");
     std::string argIncludeRemark = getUrlArg(argument, "include"), argExcludeRemark = getUrlArg(argument, "exclude");
     std::string argCustomGroups = urlSafeBase64Decode(getUrlArg(argument, "groups")), argCustomRulesets = urlSafeBase64Decode(getUrlArg(argument, "ruleset")), argExternalConfig = getUrlArg(argument, "config");
@@ -340,6 +340,7 @@ std::string subconverter(RESPONSE_CALLBACK_ARGS)
     tribool argAppendType = getUrlArg(argument, "append_type"), argTFO = getUrlArg(argument, "tfo"), argUDP = getUrlArg(argument, "udp"), argGenNodeList = getUrlArg(argument, "list");
     tribool argSort = getUrlArg(argument, "sort"), argUseSortScript = getUrlArg(argument, "sort_script");
     tribool argGenClashScript = getUrlArg(argument, "script"), argEnableInsert = getUrlArg(argument, "insert");
+    const std::string argClashDoH = toLower(getUrlArg(argument, "clash.doh"));
     tribool argSkipCertVerify = getUrlArg(argument, "scv"), argFilterDeprecated = getUrlArg(argument, "fdn"), argExpandRulesets = getUrlArg(argument, "expand"), argAppendUserinfo = getUrlArg(argument, "append_info");
     tribool argPrependInsert = getUrlArg(argument, "prepend"), argGenClassicalRuleProvider = getUrlArg(argument, "classic"), argTLS13 = getUrlArg(argument, "tls13");
 
@@ -394,6 +395,7 @@ std::string subconverter(RESPONSE_CALLBACK_ARGS)
         req_arg_map[x.first] = x.second;
     }
     req_arg_map["target"] = argTarget;
+    req_arg_map["url"] = argUrl;
     req_arg_map["ver"] = std::to_string(intSurgeVer);
 
     /// save template variables
@@ -426,6 +428,7 @@ std::string subconverter(RESPONSE_CALLBACK_ARGS)
     ext.filter_deprecated = argFilterDeprecated.get(global.filterDeprecated);
     ext.clash_new_field_name = argClashNewField.get(global.clashUseNewField);
     ext.clash_script = argGenClashScript.get();
+    ext.clash_doh = argClashDoH == "true" || argClashDoH == "1";
     ext.clash_classical_ruleset = argGenClassicalRuleProvider.get();
     if(!argExpandRulesets)
         ext.clash_new_field_name = true;
@@ -616,7 +619,7 @@ std::string subconverter(RESPONSE_CALLBACK_ARGS)
     if(!global.insertUrls.empty() && argEnableInsert)
     {
         groupID = -1;
-        urls = split(global.insertUrls, "|");
+        urls = splitUrlSources(global.insertUrls);
         // Remove empty urls
         urls.erase(std::remove_if(urls.begin(), urls.end(), [](const std::string& str) { return str.empty(); }), urls.end());
         importItems(urls, true);
@@ -637,7 +640,7 @@ std::string subconverter(RESPONSE_CALLBACK_ARGS)
             groupID--;
         }
     }
-    urls = split(argUrl, "|");
+    urls = splitUrlSources(argUrl);
     // Remove empty urls
     urls.erase(std::remove_if(urls.begin(), urls.end(), [](const std::string& str) { return str.empty(); }), urls.end());
     importItems(urls, true);
@@ -865,9 +868,15 @@ std::string subconverter(RESPONSE_CALLBACK_ARGS)
         break;
     case "v2ray"_hash:
         writeLog(0, "Generate target: v2rayN", LOG_LEVEL_INFO);
-        output_content = proxyToSingle(nodes, 4, ext);
+        output_content = proxyToSingle(nodes, 20, ext);
         if(argUpload)
             uploadGist("v2ray", argUploadPath, output_content, false);
+        break;
+    case "vless"_hash:
+        writeLog(0, "Generate target: VLESS", LOG_LEVEL_INFO);
+        output_content = proxyToSingle(nodes, 16, ext);
+        if(argUpload)
+            uploadGist("vless", argUploadPath, output_content, false);
         break;
     case "trojan"_hash:
         writeLog(0, "Generate target: Trojan", LOG_LEVEL_INFO);
@@ -877,7 +886,7 @@ std::string subconverter(RESPONSE_CALLBACK_ARGS)
         break;
     case "mixed"_hash:
         writeLog(0, "Generate target: Standard Subscription", LOG_LEVEL_INFO);
-        output_content = proxyToSingle(nodes, 15, ext);
+        output_content = proxyToSingle(nodes, 31, ext);
         if(argUpload)
             uploadGist("sub", argUploadPath, output_content, false);
         break;

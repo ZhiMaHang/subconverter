@@ -301,6 +301,43 @@ std::string getUrlArg(const string_multimap &args, const std::string &request)
     return "";
 }
 
+string_array splitUrlSources(const std::string &sources)
+{
+    string_array result;
+    std::string source;
+    source.reserve(sources.size());
+
+    auto append_source = [&]()
+    {
+        source = trimWhitespace(source, true, true);
+        if(!source.empty())
+            result.emplace_back(std::move(source));
+        source.clear();
+    };
+
+    for(char character : sources)
+    {
+        if(character == '|' || character == '\n' || character == '\r')
+            append_source();
+        else
+            source += character;
+    }
+    append_source();
+    return result;
+}
+
+string_array getUrlArgs(const string_multimap &args, const std::string &request)
+{
+    string_array result;
+    const auto range = args.equal_range(request);
+    for(auto argument = range.first; argument != range.second; ++argument)
+    {
+        string_array sources = splitUrlSources(argument->second);
+        std::move(sources.begin(), sources.end(), std::back_inserter(result));
+    }
+    return result;
+}
+
 std::string replaceAllDistinct(std::string str, const std::string &old_value, const std::string &new_value)
 {
     for(std::string::size_type pos(0); pos != std::string::npos; pos += new_value.length())

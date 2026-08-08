@@ -12,6 +12,7 @@
 🌏 国内媒体,rules/lhie1/Surge/Surge 3/Provider/Media/Tencent Video.list
 🌏 国内媒体,rules/lhie1/Surge/Surge 3/Provider/Media/Youku.list
 📲 电报信息,rules/DivineEngine/Surge/Ruleset/Extra/Telegram/Telegram.list
+Binance,clash-classic:https://cdn.jsdelivr.net/gh/blackmatrix7/ios_rule_script@master/rule/Clash/Binance/Binance.yaml
 🔰 节点选择,rules/DivineEngine/Surge/Ruleset/Global.list
 🍎 苹果服务,rules/DivineEngine/Surge/Ruleset/Extra/Apple/Apple.list
 🎯 全球直连,rules/DivineEngine/Surge/Ruleset/China.list

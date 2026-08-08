@@ -1,8 +1,14 @@
-#include <string>
+#include <algorithm>
+#include <cctype>
+#include <initializer_list>
+#include <limits>
 #include <map>
+#include <set>
+#include <string>
 
 #include "utils/base64/base64.h"
 #include "utils/ini_reader/ini_reader.h"
+#include "utils/logger.h"
 #include "utils/network.h"
 #include "utils/rapidjson_extra.h"
 #include "utils/regexp.h"
@@ -61,6 +67,17 @@ void vmessConstruct(Proxy &node, const std::string &group, const std::string &re
     }
     node.FakeType = type;
     node.TLSSecure = tls == "tls";
+}
+
+void vlessConstruct(Proxy &node, const std::string &group, const std::string &remarks, const std::string &server, const std::string &port, const std::string &uuid, const std::string &encryption, const std::string &network, const std::string &security, const std::string &sni, tribool udp, tribool tfo, tribool scv, const std::string &underlying_proxy)
+{
+    commonConstruct(node, ProxyType::VLESS, group, remarks, server, port, udp, tfo, scv, tribool(), underlying_proxy);
+    node.UserId = uuid;
+    node.EncryptMethod = encryption.empty() ? "none" : encryption;
+    node.TransferProtocol = network.empty() ? "tcp" : network;
+    node.Security = security.empty() ? "none" : security;
+    node.ServerName = sni;
+    node.TLSSecure = node.Security == "tls" || node.Security == "reality";
 }
 
 void ssrConstruct(Proxy &node, const std::string &group, const std::string &remarks, const std::string &server, const std::string &port, const std::string &protocol, const std::string &method, const std::string &obfs, const std::string &password, const std::string &obfsparam, const std::string &protoparam, tribool udp, tribool tfo, tribool scv,const std::string& underlying_proxy)
@@ -943,6 +960,217 @@ void explodeTrojan(std::string trojan, Proxy &node)
     trojanConstruct(node, group, remark, server, port, psk, network, host, path, true, tribool(), tfo, scv);
 }
 
+void explodeVLESS(std::string vless, Proxy &node)
+{
+    if(!startsWith(vless, "vless://"))
+        return;
+
+    vless.erase(0, 8);
+
+    std::string remark, addition;
+    string_size pos = vless.rfind('#');
+    if(pos != std::string::npos)
+    {
+        remark = urlDecode(vless.substr(pos + 1));
+        vless.erase(pos);
+    }
+
+    pos = vless.find('?');
+    if(pos != std::string::npos)
+    {
+        addition = vless.substr(pos + 1);
+        vless.erase(pos);
+    }
+
+    const string_size at = vless.rfind('@');
+    if(at == std::string::npos)
+        return;
+
+    const std::string uuid = urlDecode(vless.substr(0, at));
+    std::string authority = vless.substr(at + 1), server, port;
+    if(uuid.empty() || authority.empty())
+        return;
+
+    if(authority.front() == '[')
+    {
+        const string_size close = authority.find(']');
+        if(close == std::string::npos || close + 1 >= authority.size() || authority[close + 1] != ':')
+            return;
+        server = authority.substr(1, close - 1);
+        port = authority.substr(close + 2);
+    }
+    else
+    {
+        const string_size colon = authority.rfind(':');
+        if(colon == std::string::npos || authority.find(':') != colon)
+            return;
+        server = authority.substr(0, colon);
+        port = authority.substr(colon + 1);
+    }
+
+    server = urlDecode(server);
+    if(port.empty() || !std::all_of(port.begin(), port.end(), [](unsigned char ch) { return std::isdigit(ch); }))
+        return;
+    uint32_t port_number = 0;
+    for(const unsigned char digit : port)
+    {
+        port_number = port_number * 10 + (digit - '0');
+        if(port_number > 65535)
+            return;
+    }
+    if(server.empty() || port_number == 0)
+        return;
+
+    std::set<std::string> query_keys;
+    for(const std::string &item : split(addition, "&"))
+    {
+        if(item.empty())
+            continue;
+        const string_size equal = item.find('=');
+        const std::string key = urlDecode(item.substr(0, equal));
+        if(key.empty() || !query_keys.emplace(key).second)
+            return;
+    }
+
+    auto arg = [&addition](const std::string &name) {
+        return urlDecode(getUrlArg(addition, name));
+    };
+    auto has_arg = [&addition](const std::string &name) {
+        for(const std::string &item : split(addition, "&"))
+        {
+            const string_size equal = item.find('=');
+            if(urlDecode(item.substr(0, equal)) == name)
+                return true;
+        }
+        return false;
+    };
+
+    std::string group = arg("group");
+    std::string encryption = arg("encryption");
+    std::string security = arg("security");
+    std::string network = arg("type");
+    std::string header_type = arg("headerType");
+    std::string host = arg("host");
+    std::string path = arg("path");
+    std::string sni = arg("sni");
+    std::string reality_public_key = arg("pbk");
+
+    // These current Xray URI options cannot be represented by Proxy yet. Reject
+    // the link instead of accepting it and later emitting a subtly different
+    // (and often unusable) node.
+    for(const char *unsupported : {"pqv", "ech", "pcs", "vcn", "fm"})
+    {
+        if(has_arg(unsupported))
+            return;
+    }
+
+    if(encryption.empty())
+        encryption = "none";
+    if(security.empty())
+        security = tribool(arg("tls")).get() ? "tls" : "none";
+    else if(security == "xtls")
+        security = "tls";
+    if(security != "none" && security != "tls" && security != "reality")
+        return;
+    if(network.empty() || network == "raw")
+        network = "tcp";
+    else if(network == "http" || network == "h2")
+        network = "h2";
+    if(network == "tcp" && header_type == "http")
+        network = "http";
+
+    const std::string method = arg("method");
+    if((has_arg("method") && network != "http") || (network == "http" && !method.empty() && method != "GET"))
+        return;
+
+    switch(hash_(network))
+    {
+    case "tcp"_hash:
+    case "http"_hash:
+    case "h2"_hash:
+    case "ws"_hash:
+    case "grpc"_hash:
+    case "httpupgrade"_hash:
+    case "xhttp"_hash:
+        break;
+    default:
+        return;
+    }
+
+    if(!reality_public_key.empty())
+        security = "reality";
+    if(security == "reality" && reality_public_key.empty())
+        return;
+
+    if(network == "grpc")
+    {
+        const std::string service_name = arg("serviceName");
+        const std::string authority_value = arg("authority");
+        if(!service_name.empty())
+            path = service_name;
+        if(!authority_value.empty())
+            host = authority_value;
+    }
+
+    uint32_t max_early_data = 0;
+    const std::string early_data = arg("ed");
+    const std::string early_data_header = arg("eh");
+    if(has_arg("ed"))
+    {
+        if(early_data.empty() || !std::all_of(early_data.begin(), early_data.end(), [](unsigned char ch) { return std::isdigit(ch); }))
+            return;
+        for(const unsigned char digit : early_data)
+        {
+            if(max_early_data > (std::numeric_limits<uint32_t>::max() - (digit - '0')) / 10)
+                return;
+            max_early_data = max_early_data * 10 + (digit - '0');
+        }
+    }
+    if((has_arg("ed") || has_arg("eh")) && network != "ws" && network != "httpupgrade")
+        return;
+
+    if(remark.empty())
+        remark = server + ":" + port;
+    if(group.empty())
+        group = VLESS_DEFAULT_GROUP;
+    if(sni.empty())
+        sni = arg("peer");
+
+    tribool tfo(arg("tfo")), udp(arg("udp")), scv(arg("allowInsecure"));
+    if(scv.is_undef())
+        scv = tribool(arg("insecure"));
+
+    vlessConstruct(node, group, remark, server, port, uuid, encryption, network, security, sni, udp, tfo, scv);
+    node.FakeType = header_type;
+    node.Host = host;
+    node.Path = path;
+    node.Flow = arg("flow");
+    node.PacketEncoding = arg("packetEncoding");
+    if(node.PacketEncoding.empty())
+        node.PacketEncoding = arg("packet-encoding");
+    node.ClientFingerprint = arg("fp");
+    if(node.ClientFingerprint.empty() && node.TLSSecure)
+        node.ClientFingerprint = "chrome";
+    node.RealityPublicKey = reality_public_key;
+    node.RealityShortId = arg("sid");
+    node.RealitySpiderX = arg("spx");
+    node.MaxEarlyData = max_early_data;
+    node.EarlyDataHeaderName = early_data_header;
+
+    const std::string mode = arg("mode");
+    if(network == "grpc")
+        node.GRPCMode = mode;
+    else if(network == "xhttp")
+    {
+        node.XHTTPMode = mode;
+        node.XHTTPExtra = arg("extra");
+    }
+
+    const std::string alpn = arg("alpn");
+    if(!alpn.empty())
+        node.Alpn = split(alpn, ",");
+}
+
 void explodeQuan(const std::string &quan, Proxy &node)
 {
     std::string strTemp, itemName, itemVal;
@@ -1187,6 +1415,219 @@ void explodeClash(Node yamlnode, std::vector<Proxy> &nodes)
 
             vmessConstruct(node, group, ps, server, port, "", id, aid, net, cipher, path, host, edge, tls, sni, udp, tfo, scv, tribool(), underlying_proxy);
             break;
+        case "vless"_hash:
+        {
+            std::string vless_uuid, encryption = "none", flow, packet_encoding;
+            std::string security = "none", client_fingerprint, reality_public_key, reality_short_id;
+            std::string reality_spider_x, grpc_mode, xhttp_mode, xhttp_extra, early_data_header;
+            std::string header_type, vless_host, vless_path, vless_sni;
+            string_array vless_alpn;
+            uint32_t max_early_data = 0;
+
+            auto first_string = [](const Node &value) {
+                if(value.IsSequence() && value.size())
+                    return safe_as<std::string>(value[0]);
+                return safe_as<std::string>(value);
+            };
+            auto map_has_only = [](const Node &value, std::initializer_list<const char *> allowed) {
+                if(!value.IsDefined() || value.IsNull())
+                    return true;
+                if(!value.IsMap())
+                    return false;
+                for(auto iter = value.begin(); iter != value.end(); ++iter)
+                {
+                    const std::string key = safe_as<std::string>(iter->first);
+                    if(std::none_of(allowed.begin(), allowed.end(), [&key](const char *candidate) { return key == candidate; }))
+                        return false;
+                }
+                return true;
+            };
+            auto is_scalar_or_single = [](const Node &value) {
+                return !value.IsDefined() || value.IsNull() || value.IsScalar() || (value.IsSequence() && value.size() <= 1);
+            };
+
+            group = VLESS_DEFAULT_GROUP;
+            singleproxy["uuid"] >>= vless_uuid;
+            const int vless_port = to_int(port, 0);
+            if(vless_uuid.empty() || server.empty() || vless_port <= 0 || vless_port > 65535)
+                continue;
+            singleproxy["encryption"] >>= encryption;
+            if(encryption.empty())
+                encryption = "none";
+            singleproxy["flow"] >>= flow;
+            singleproxy["packet-encoding"] >>= packet_encoding;
+            singleproxy["client-fingerprint"] >>= client_fingerprint;
+            singleproxy["servername"] >>= vless_sni;
+            if(vless_sni.empty())
+                singleproxy["sni"] >>= vless_sni;
+
+            // Certificate pinning/name verification has no VLESS URI or
+            // sing-box mapping in the current model. Do not silently strip it.
+            if(singleproxy["fingerprint"].IsDefined() || singleproxy["name-cert-verify"].IsDefined() ||
+               singleproxy["certificate"].IsDefined() || singleproxy["private-key"].IsDefined() ||
+               singleproxy["ca"].IsDefined() || singleproxy["ca-str"].IsDefined() ||
+               singleproxy["ech-opts"].IsDefined() || singleproxy["shadow-tls-opts"].IsDefined() ||
+               singleproxy["restls-opts"].IsDefined() || singleproxy["jls-opts"].IsDefined())
+            {
+                writeLog(0, "Skipping VLESS Clash node with unsupported certificate verification settings: " + ps, LOG_LEVEL_WARNING);
+                continue;
+            }
+            if(!map_has_only(singleproxy["reality-opts"], {"public-key", "short-id"}))
+            {
+                writeLog(0, "Skipping VLESS Clash node with unsupported Reality options: " + ps, LOG_LEVEL_WARNING);
+                continue;
+            }
+
+            net = singleproxy["network"].IsDefined() ? safe_as<std::string>(singleproxy["network"]) : "tcp";
+            switch(hash_(net))
+            {
+            case "ws"_hash:
+            {
+                const Node ws_options = singleproxy["ws-opts"];
+                if(!map_has_only(ws_options, {"path", "headers", "max-early-data", "early-data-header-name", "v2ray-http-upgrade", "v2ray-http-upgrade-fast-open"}) ||
+                   !map_has_only(ws_options["headers"], {"Host"}) ||
+                   singleproxy["ws-path"].IsDefined() || singleproxy["ws-headers"].IsDefined())
+                {
+                    writeLog(0, "Skipping VLESS Clash node with unsupported WebSocket options: " + ps, LOG_LEVEL_WARNING);
+                    continue;
+                }
+                vless_path = singleproxy["ws-opts"]["path"].IsDefined() ? safe_as<std::string>(singleproxy["ws-opts"]["path"]) : "/";
+                singleproxy["ws-opts"]["headers"]["Host"] >>= vless_host;
+                singleproxy["ws-opts"]["max-early-data"] >>= max_early_data;
+                singleproxy["ws-opts"]["early-data-header-name"] >>= early_data_header;
+                const bool use_http_upgrade = safe_as<bool>(singleproxy["ws-opts"]["v2ray-http-upgrade"]);
+                const bool use_http_upgrade_fast_open = safe_as<bool>(singleproxy["ws-opts"]["v2ray-http-upgrade-fast-open"]);
+                if(use_http_upgrade_fast_open && !use_http_upgrade)
+                {
+                    writeLog(0, "Skipping VLESS Clash WebSocket node with HTTPUpgrade fast-open but no HTTPUpgrade: " + ps, LOG_LEVEL_WARNING);
+                    continue;
+                }
+                if(use_http_upgrade)
+                {
+                    if(max_early_data)
+                    {
+                        writeLog(0, "Skipping VLESS Clash HTTPUpgrade node with incompatible WebSocket early-data threshold: " + ps, LOG_LEVEL_WARNING);
+                        continue;
+                    }
+                    net = "httpupgrade";
+                    if(use_http_upgrade_fast_open)
+                        max_early_data = 1;
+                }
+                break;
+            }
+            case "http"_hash:
+            {
+                const Node http_options = singleproxy["http-opts"];
+                const std::string method = safe_as<std::string>(http_options["method"]);
+                if(!map_has_only(http_options, {"method", "path", "headers"}) ||
+                   (!method.empty() && method != "GET") ||
+                   !map_has_only(http_options["headers"], {"Host"}) ||
+                   !is_scalar_or_single(http_options["path"]) ||
+                   !is_scalar_or_single(http_options["headers"]["Host"]))
+                {
+                    writeLog(0, "Skipping VLESS Clash node with unsupported HTTP options: " + ps, LOG_LEVEL_WARNING);
+                    continue;
+                }
+                header_type = "http";
+                vless_path = first_string(singleproxy["http-opts"]["path"]);
+                vless_host = first_string(singleproxy["http-opts"]["headers"]["Host"]);
+                break;
+            }
+            case "h2"_hash:
+            {
+                const Node h2_options = singleproxy["h2-opts"];
+                if(!map_has_only(h2_options, {"path", "host"}) || !is_scalar_or_single(h2_options["host"]))
+                {
+                    writeLog(0, "Skipping VLESS Clash node with unsupported H2 options: " + ps, LOG_LEVEL_WARNING);
+                    continue;
+                }
+                vless_path = safe_as<std::string>(singleproxy["h2-opts"]["path"]);
+                vless_host = first_string(singleproxy["h2-opts"]["host"]);
+                break;
+            }
+            case "grpc"_hash:
+            {
+                const Node grpc_options = singleproxy["grpc-opts"];
+                if(!map_has_only(grpc_options, {"grpc-service-name", "grpc-mode", "grpc-authority"}))
+                {
+                    writeLog(0, "Skipping VLESS Clash node with unsupported gRPC options: " + ps, LOG_LEVEL_WARNING);
+                    continue;
+                }
+                singleproxy["grpc-opts"]["grpc-service-name"] >>= vless_path;
+                singleproxy["grpc-opts"]["grpc-mode"] >>= grpc_mode;
+                singleproxy["grpc-opts"]["grpc-authority"] >>= vless_host;
+                break;
+            }
+            case "xhttp"_hash:
+            {
+                const Node xhttp_options = singleproxy["xhttp-opts"];
+                if(!map_has_only(xhttp_options, {"path", "host", "mode"}))
+                {
+                    writeLog(0, "Skipping VLESS Clash node with unsupported XHTTP options: " + ps, LOG_LEVEL_WARNING);
+                    continue;
+                }
+                singleproxy["xhttp-opts"]["path"] >>= vless_path;
+                singleproxy["xhttp-opts"]["host"] >>= vless_host;
+                singleproxy["xhttp-opts"]["mode"] >>= xhttp_mode;
+                break;
+            }
+            case "httpupgrade"_hash:
+                if(!map_has_only(singleproxy["http-upgrade-opts"], {"path", "host"}))
+                {
+                    writeLog(0, "Skipping VLESS Clash node with unsupported HTTPUpgrade options: " + ps, LOG_LEVEL_WARNING);
+                    continue;
+                }
+                singleproxy["http-upgrade-opts"]["path"] >>= vless_path;
+                singleproxy["http-upgrade-opts"]["host"] >>= vless_host;
+                break;
+            case "tcp"_hash:
+                break;
+            default:
+                writeLog(0, "Skipping VLESS Clash node with unsupported transport: " + ps, LOG_LEVEL_WARNING);
+                continue;
+            }
+
+            if(singleproxy["reality-opts"].IsDefined())
+            {
+                security = "reality";
+                singleproxy["reality-opts"]["public-key"] >>= reality_public_key;
+                singleproxy["reality-opts"]["short-id"] >>= reality_short_id;
+                if(reality_public_key.empty())
+                {
+                    writeLog(0, "Skipping VLESS Clash Reality node without public key: " + ps, LOG_LEVEL_WARNING);
+                    continue;
+                }
+            }
+            else if(safe_as<std::string>(singleproxy["tls"]) == "true")
+                security = "tls";
+
+            if(singleproxy["alpn"].IsSequence())
+                singleproxy["alpn"] >>= vless_alpn;
+            else
+            {
+                const std::string alpn_string = safe_as<std::string>(singleproxy["alpn"]);
+                if(!alpn_string.empty())
+                    vless_alpn = split(alpn_string, ",");
+            }
+
+            vlessConstruct(node, group, ps, server, port, vless_uuid, encryption, net, security, vless_sni, udp, tfo, scv, underlying_proxy);
+            node.FakeType = header_type;
+            node.Host = vless_host;
+            node.Path = vless_path;
+            node.Flow = flow;
+            node.PacketEncoding = packet_encoding;
+            node.ClientFingerprint = client_fingerprint;
+            node.RealityPublicKey = reality_public_key;
+            node.RealityShortId = reality_short_id;
+            node.RealitySpiderX = reality_spider_x;
+            node.GRPCMode = grpc_mode;
+            node.XHTTPMode = xhttp_mode;
+            node.XHTTPExtra = xhttp_extra;
+            node.MaxEarlyData = max_early_data;
+            node.EarlyDataHeaderName = early_data_header;
+            node.Alpn = vless_alpn;
+            break;
+        }
         case "ss"_hash:
             group = SS_DEFAULT_GROUP;
 
@@ -2578,6 +3019,8 @@ void explode(const std::string &link, Proxy &node)
 {
     if(startsWith(link, "ssr://"))
         explodeSSR(link, node);
+    else if(startsWith(link, "vless://"))
+        explodeVLESS(link, node);
     else if(startsWith(link, "vmess://") || startsWith(link, "vmess1://"))
         explodeVmess(link, node);
     else if(startsWith(link, "ss://"))

@@ -7,6 +7,7 @@
 🌏 国内媒体`select`[]🎯 全球直连`(HGC|HKBN|PCCW|HKT|深台|彰化|新北|台|hk|港|tw)`[]🔰 节点选择
 Ⓜ️ 微软服务`select`[]🎯 全球直连`[]🔰 节点选择`.*
 📲 电报信息`select`[]🔰 节点选择`[]🎯 全球直连`.*
+Binance`select`(?i:\bTW[N]?\d*\b|Taiwan|臺灣|新北|彰化|\bCHT\b|台湾|[^-]台|\bHINET\b)`[]REJECT
 🍎 苹果服务`select`[]🔰 节点选择`[]🎯 全球直连`[]♻️ 自动选择`.*
 🎯 全球直连`select`[]DIRECT
 🛑 全球拦截`select`[]REJECT`[]DIRECT

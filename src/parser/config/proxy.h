@@ -24,6 +24,7 @@ enum class ProxyType
     Hysteria,
     Hysteria2,
     AnyTLS,
+    VLESS,
 };
 
 inline String getProxyTypeName(ProxyType type)
@@ -54,6 +55,8 @@ inline String getProxyTypeName(ProxyType type)
         return "Hysteria2";
     case ProxyType::AnyTLS:
         return "AnyTLS";
+    case ProxyType::VLESS:
+        return "VLESS";
     default:
         return "Unknown";
     }
@@ -83,6 +86,19 @@ struct Proxy
     String TransferProtocol;
     String FakeType;
     bool TLSSecure = false;
+
+    String Security;
+    String Flow;
+    String PacketEncoding;
+    String ClientFingerprint;
+    String RealityPublicKey;
+    String RealityShortId;
+    String RealitySpiderX;
+    String GRPCMode;
+    String XHTTPMode;
+    String XHTTPExtra;
+    uint32_t MaxEarlyData = 0;
+    String EarlyDataHeaderName;
 
     String Host;
     String Path;
@@ -143,5 +159,6 @@ struct Proxy
 #define HYSTERIA_DEFAULT_GROUP "HysteriaProvider"
 #define HYSTERIA2_DEFAULT_GROUP "Hysteria2Provider"
 #define ANYTLS_DEFAULT_GROUP "AnyTLSProvider"
+#define VLESS_DEFAULT_GROUP "VLESSProvider"
 
 #endif // PROXY_H_INCLUDED

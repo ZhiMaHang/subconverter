@@ -65,6 +65,11 @@ rule = ["[]🔰 节点选择",
 ".*"]
 
 [[custom_groups]]
+name = "Binance"
+type = "select"
+rule = ["(?i:\\bTW[N]?\\d*\\b|Taiwan|臺灣|新北|彰化|\\bCHT\\b|台湾|[^-]台|\\bHINET\\b)", "[]REJECT"]
+
+[[custom_groups]]
 name = "🍎 苹果服务"
 type = "select"
 rule = ["[]🔰 节点选择",
