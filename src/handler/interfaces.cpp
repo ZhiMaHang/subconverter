@@ -5,8 +5,8 @@
 
 #include <yaml-cpp/yaml.h>
 
-#include "config/binance.h"
 #include "config/binding.h"
+#include "config/service_policy.h"
 #include "generator/config/nodemanip.h"
 #include "generator/config/ruleconvert.h"
 #include "generator/config/source_batch.h"
@@ -512,7 +512,7 @@ std::string subconverter(RESPONSE_CALLBACK_ARGS)
     if(ext.enable_rule_generator && !ext.nodelist && !lSimpleSubscription &&
        (argTarget == "clash" || argTarget == "clashr"))
     {
-        binance_policy::enforce(lCustomProxyGroups, lCustomRulesets);
+        service_policy::enforce(lCustomProxyGroups, lCustomRulesets);
     }
     if(ext.enable_rule_generator && !ext.nodelist && !lSimpleSubscription)
     {

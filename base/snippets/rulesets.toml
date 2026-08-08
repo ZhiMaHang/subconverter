@@ -2,6 +2,19 @@
 group = "Binance"
 ruleset = "https://cdn.jsdelivr.net/gh/blackmatrix7/ios_rule_script@master/rule/Clash/Binance/Binance.yaml"
 type = "clash-classic"
+interval = 86400
+
+[[rulesets]]
+group = "OpenAI"
+ruleset = "https://cdn.jsdelivr.net/gh/blackmatrix7/ios_rule_script@master/rule/Clash/OpenAI/OpenAI.yaml"
+type = "clash-classic"
+interval = 86400
+
+[[rulesets]]
+group = "Anthropic"
+ruleset = "https://cdn.jsdelivr.net/gh/blackmatrix7/ios_rule_script@master/rule/Clash/Anthropic/Anthropic.yaml"
+type = "clash-classic"
+interval = 86400
 
 [[rulesets]]
 group = "🎯 全球直连"

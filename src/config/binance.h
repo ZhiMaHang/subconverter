@@ -1,49 +1,32 @@
 #ifndef BINANCE_H_INCLUDED
 #define BINANCE_H_INCLUDED
 
-#include <algorithm>
-#include <string>
-#include <utility>
+#include "config/service_policy.h"
 
-#include "config/proxygroup.h"
-#include "config/ruleset.h"
-#include "utils/string.h"
-
+// Compatibility facade for downstream code that included the original
+// Binance-only policy header.
 namespace binance_policy
 {
-inline constexpr const char *Name = "Binance";
-inline constexpr const char *TaiwanGroupName = "🇨🇳 台湾节点";
-inline constexpr const char *RulesetUrl = "https://cdn.jsdelivr.net/gh/blackmatrix7/ios_rule_script@master/rule/Clash/Binance/Binance.yaml";
-inline constexpr const char *TypedRulesetUrl = "clash-classic:https://cdn.jsdelivr.net/gh/blackmatrix7/ios_rule_script@master/rule/Clash/Binance/Binance.yaml";
-inline constexpr const char *TaiwanNodeRegex = R"((?i:\bTW[N]?\d*\b|Taiwan|臺灣|新北|彰化|\bCHT\b|台湾|[^-]台|\bHINET\b))";
-inline constexpr int UpdateInterval = 86400;
+inline constexpr const char *Name = service_policy::BinanceName;
+inline constexpr const char *TaiwanGroupName = service_policy::TaiwanGroupName;
+inline constexpr const char *RulesetUrl = service_policy::BinanceRulesetUrl;
+inline constexpr const char *TypedRulesetUrl = service_policy::TypedBinanceRulesetUrl;
+inline constexpr const char *TaiwanNodeRegex = service_policy::TaiwanNodeRegex;
+inline constexpr int UpdateInterval = service_policy::UpdateInterval;
 
 inline bool hasBinanceName(const std::string &value)
 {
-    return toLower(trim(value)) == "binance";
+    return service_policy::hasName(value, service_policy::Definitions[0]);
 }
 
 inline bool hasBinanceRulesetUrl(const std::string &value)
 {
-    const std::string normalized = trim(value);
-    return normalized == RulesetUrl || normalized == TypedRulesetUrl;
+    return service_policy::hasRulesetUrl(value, service_policy::Definitions[0]);
 }
 
 inline bool isClashCompatibleGroup(const ProxyGroupConfig &group)
 {
-    switch(group.Type)
-    {
-    case ProxyGroupType::Select:
-    case ProxyGroupType::URLTest:
-    case ProxyGroupType::Fallback:
-    case ProxyGroupType::LoadBalance:
-    case ProxyGroupType::Relay:
-    case ProxyGroupType::Smart:
-        return true;
-    case ProxyGroupType::SSID:
-        return false;
-    }
-    return false;
+    return service_policy::isClashCompatibleGroup(group);
 }
 
 inline void enforce(ProxyGroupConfigs &groups, RulesetConfigs &rulesets)

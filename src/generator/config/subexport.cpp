@@ -841,6 +841,8 @@ std::string proxyToClash(std::vector<Proxy> &nodes, const std::string &base_conf
         renderClashScript(yamlnode, ruleset_content_array, ext.managed_config_prefix, ext.clash_script, ext.overwrite_original_rules, ext.clash_classical_ruleset);
         if(ext.clash_doh)
             enforceClashDoHRule(yamlnode, ext.clash_new_field_name);
+        if(!ext.clash_script)
+            prioritizeManagedServiceRules(yamlnode, ext.clash_new_field_name);
         return YAML::Dump(yamlnode);
     }
 

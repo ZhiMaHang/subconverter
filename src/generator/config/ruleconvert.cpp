@@ -1,6 +1,7 @@
 #include <string>
 
 #include "handler/settings.h"
+#include "config/service_policy.h"
 #include "utils/logger.h"
 #include "utils/network.h"
 #include "utils/regexp.h"
@@ -10,7 +11,7 @@
 
 /// rule type lists
 #define basic_types "DOMAIN", "DOMAIN-SUFFIX", "DOMAIN-KEYWORD", "IP-CIDR", "SRC-IP-CIDR", "GEOIP", "MATCH", "FINAL"
-string_array ClashRuleTypes = {basic_types, "IP-CIDR6", "SRC-PORT", "DST-PORT", "PROCESS-NAME"};
+string_array ClashRuleTypes = {basic_types, "IP-CIDR6", "IP-ASN", "SRC-PORT", "DST-PORT", "PROCESS-NAME"};
 string_array Surge2RuleTypes = {basic_types, "IP-CIDR6", "USER-AGENT", "URL-REGEX", "PROCESS-NAME", "IN-PORT", "DEST-PORT", "SRC-IP"};
 string_array SurgeRuleTypes = {basic_types, "IP-CIDR6", "USER-AGENT", "URL-REGEX", "AND", "OR", "NOT", "PROCESS-NAME", "IN-PORT", "DEST-PORT", "SRC-IP"};
 string_array QuanXRuleTypes = {basic_types, "USER-AGENT", "HOST", "HOST-SUFFIX", "HOST-KEYWORD"};
@@ -178,6 +179,41 @@ void enforceClashDoHRule(YAML::Node &base_rule, bool new_field_name)
     base_rule[field_name] = normalized_rules;
 }
 
+static bool targetsManagedService(const std::string &rule)
+{
+    string_view_array fields;
+    split(fields, rule, ',');
+    return fields.size() > 2 && service_policy::isManagedName(std::string(fields[2]));
+}
+
+void prioritizeManagedServiceRules(std::vector<std::string> &rules)
+{
+    std::stable_partition(rules.begin(), rules.end(), targetsManagedService);
+}
+
+void prioritizeManagedServiceRules(YAML::Node &base_rule, bool new_field_name)
+{
+    std::string field_name = new_field_name ? "rules" : "Rule";
+    if(!base_rule[field_name].IsSequence())
+    {
+        const std::string alternate_field_name = new_field_name ? "Rule" : "rules";
+        if(base_rule[alternate_field_name].IsSequence())
+            field_name = alternate_field_name;
+    }
+    if(!base_rule[field_name].IsSequence())
+        return;
+
+    string_array rules;
+    for(const YAML::Node &rule : base_rule[field_name])
+        rules.emplace_back(safe_as<std::string>(rule));
+    prioritizeManagedServiceRules(rules);
+
+    YAML::Node prioritized_rules(YAML::NodeType::Sequence);
+    for(const std::string &rule : rules)
+        prioritized_rules.push_back(rule);
+    base_rule[field_name] = prioritized_rules;
+}
+
 void rulesetToClash(YAML::Node &base_rule, std::vector<RulesetContent> &ruleset_content_array, bool overwrite_original_rules, bool new_field_name)
 {
     string_array allRules;
@@ -244,6 +280,7 @@ void rulesetToClash(YAML::Node &base_rule, std::vector<RulesetContent> &ruleset_
     }
 
     base_rule[field_name] = rules;
+    prioritizeManagedServiceRules(base_rule, new_field_name);
 }
 
 std::string rulesetToClashStr(YAML::Node &base_rule, std::vector<RulesetContent> &ruleset_content_array, bool overwrite_original_rules, bool new_field_name, bool enforce_doh_rule)
@@ -252,15 +289,12 @@ std::string rulesetToClashStr(YAML::Node &base_rule, std::vector<RulesetContent>
     std::stringstream strStrm;
     const std::string field_name = new_field_name ? "rules" : "Rule";
     std::string output_content = "\n" + field_name + ":\n";
-    string_array doh_rules;
+    string_array output_rules;
     size_t total_rules = 0;
 
     auto append_rule = [&](const std::string &rule)
     {
-        if(enforce_doh_rule)
-            doh_rules.emplace_back(rule);
-        else
-            output_content += "  - " + rule + "\n";
+        output_rules.emplace_back(rule);
     };
 
     if(!overwrite_original_rules && base_rule[field_name].IsDefined())
@@ -319,11 +353,10 @@ std::string rulesetToClashStr(YAML::Node &base_rule, std::vector<RulesetContent>
         }
     }
     if(enforce_doh_rule)
-    {
-        enforceClashDoHRule(doh_rules);
-        for(const std::string &rule : doh_rules)
-            output_content += "  - " + rule + "\n";
-    }
+        enforceClashDoHRule(output_rules);
+    prioritizeManagedServiceRules(output_rules);
+    for(const std::string &rule : output_rules)
+        output_content += "  - " + rule + "\n";
     return output_content;
 }
 
