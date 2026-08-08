@@ -1,0 +1,90 @@
+name: Build Linux x64 Package
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.ref }}-${{ github.workflow }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build-linux64:
+    name: Build Linux x86_64 Binary Package
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v7
+
+      - name: Add commit ID to version
+        if: github.ref_type != 'tag'
+        shell: bash
+        run: |
+          sha_short="$(git rev-parse --short HEAD)"
+          sed -i 's/\(v[0-9]\.[0-9]\.[0-9]\)/\1-'"${sha_short}"'/' src/version.h
+
+      - name: Build static Linux x86_64 package
+        shell: bash
+        run: |
+          docker run --rm --platform linux/amd64 \
+            -v "${GITHUB_WORKSPACE}:/root/workdir" \
+            -w /root/workdir \
+            alpine:3.24 \
+            /bin/sh -c 'apk add --no-cache bash git && chmod +x scripts/build.alpine.release.sh && bash scripts/build.alpine.release.sh'
+
+      - name: Verify binary and smoke test
+        shell: bash
+        run: |
+          set -euo pipefail
+          binary="${GITHUB_WORKSPACE}/subconverter/subconverter"
+          test -x "${binary}"
+
+          binary_info="$(file "${binary}")"
+          echo "${binary_info}"
+          grep -q 'ELF 64-bit' <<< "${binary_info}"
+          grep -q 'x86-64' <<< "${binary_info}"
+          grep -q 'statically linked' <<< "${binary_info}"
+
+          rm -rf /tmp/subconverter-smoke
+          mkdir -p /tmp/subconverter-smoke
+          install -m 755 "${binary}" /tmp/subconverter-smoke/subconverter
+
+          cd /tmp/subconverter-smoke
+          ./subconverter >/tmp/subconverter-smoke.log 2>&1 &
+          smoke_pid=$!
+          trap 'kill "${smoke_pid}" 2>/dev/null || true' EXIT
+
+          version_response=""
+          for _ in $(seq 1 20); do
+            if version_response="$(curl -fsS --max-time 2 http://127.0.0.1:25500/version)"; then
+              break
+            fi
+            sleep 1
+          done
+          test -n "${version_response}"
+          grep -q '^subconverter v.* backend$' <<< "${version_response}"
+          echo "${version_response}"
+
+          kill "${smoke_pid}"
+          wait "${smoke_pid}" || true
+          trap - EXIT
+
+      - name: Create archive and checksum
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          tar -czf dist/subconverter_linux64.tar.gz subconverter
+          sha256sum dist/subconverter_linux64.tar.gz > dist/subconverter_linux64.tar.gz.sha256
+
+      - name: Upload Linux x64 package
+        uses: actions/upload-artifact@v7
+        with:
+          name: subconverter_linux64-${{ github.sha }}
+          path: |
+            dist/subconverter_linux64.tar.gz
+            dist/subconverter_linux64.tar.gz.sha256
+          if-no-files-found: error
+          retention-days: 30
