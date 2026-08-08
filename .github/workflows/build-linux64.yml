@@ -45,7 +45,12 @@ jobs:
           echo "${binary_info}"
           grep -q 'ELF 64-bit' <<< "${binary_info}"
           grep -q 'x86-64' <<< "${binary_info}"
-          grep -q 'statically linked' <<< "${binary_info}"
+          grep -Eq '(statically linked|static-pie linked)' <<< "${binary_info}"
+          readelf -h "${binary}" | grep -Eq 'Machine:.*X86-64'
+          if readelf -d "${binary}" | grep -q '(NEEDED)'; then
+            echo 'Binary unexpectedly depends on shared libraries.' >&2
+            exit 1
+          fi
 
           rm -rf /tmp/subconverter-smoke
           mkdir -p /tmp/subconverter-smoke
@@ -78,6 +83,9 @@ jobs:
           mkdir -p dist
           tar -czf dist/subconverter_linux64.tar.gz subconverter
           sha256sum dist/subconverter_linux64.tar.gz > dist/subconverter_linux64.tar.gz.sha256
+          tar -tzf dist/subconverter_linux64.tar.gz | grep -qx 'subconverter/subconverter'
+          cd dist
+          sha256sum -c subconverter_linux64.tar.gz.sha256
 
       - name: Upload Linux x64 package
         uses: actions/upload-artifact@v7
