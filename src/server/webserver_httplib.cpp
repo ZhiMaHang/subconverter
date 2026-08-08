@@ -80,18 +80,6 @@ static httplib::Server::Handler makeHandler(const responseRoute &rr)
     };
 }
 
-static std::string dump(const httplib::Headers &headers)
-{
-    std::string s;
-    for (auto &x: headers)
-    {
-        if (startsWith(x.first, "LOCAL_") || startsWith(x.first, "REMOTE_"))
-            continue;
-        s += x.first + ": " + x.second + "|";
-    }
-    return s;
-}
-
 int WebServer::start_web_server_multi(listener_args *args)
 {
     httplib::Server server;
@@ -143,8 +131,8 @@ int WebServer::start_web_server_multi(listener_args *args)
     server.set_pre_routing_handler([&](const httplib::Request &req, httplib::Response &res)
     {
         writeLog(0, "Accept connection from client " + req.remote_addr + ":" + std::to_string(req.remote_port), LOG_LEVEL_DEBUG);
-        writeLog(0, "handle_cmd:    " + req.method + " handle_uri:    " + req.target, LOG_LEVEL_VERBOSE);
-        writeLog(0, "handle_header: " + dump(req.headers), LOG_LEVEL_VERBOSE);
+        writeLog(0, "handle_cmd:    " + req.method + " handle_uri:    " + req.path, LOG_LEVEL_VERBOSE);
+        writeLog(0, "handle_headers: " + std::to_string(req.headers.size()) + " header(s).", LOG_LEVEL_VERBOSE);
 
         if (req.has_header("SubConverter-Request"))
         {
@@ -203,11 +191,8 @@ int WebServer::start_web_server_multi(listener_args *args)
         }
         catch (const std::exception &ex)
         {
-            std::string return_data = "Internal server error while processing request '" + req.target + "'!\n";
-            return_data += "\n  exception: ";
-            return_data += type(ex);
-            return_data += "\n  what(): ";
-            return_data += ex.what();
+            (void)ex;
+            std::string return_data = "Internal server error while processing request.\n";
             res.status = 500;
             res.set_content(return_data, "text/plain");
         }

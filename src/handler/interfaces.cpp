@@ -9,6 +9,7 @@
 #include "config/binding.h"
 #include "generator/config/nodemanip.h"
 #include "generator/config/ruleconvert.h"
+#include "generator/config/source_batch.h"
 #include "generator/config/subexport.h"
 #include "generator/template/templates.h"
 #include "script/script_quickjs.h"
@@ -629,18 +630,20 @@ std::string subconverter(RESPONSE_CALLBACK_ARGS)
         // Remove empty urls
         urls.erase(std::remove_if(urls.begin(), urls.end(), [](const std::string& str) { return str.empty(); }), urls.end());
         importItems(urls, true);
-        for(std::string &x : urls)
+        for(size_t source_index = 0; source_index < urls.size(); source_index++)
         {
+            std::string &x = urls[source_index];
             x = regTrim(x);
-            writeLog(0, "Fetching node data from url '" + x + "'.", LOG_LEVEL_INFO);
+            const std::string source_name = "insert subscription source #" + std::to_string(source_index + 1);
+            writeLog(0, "Fetching " + source_name + ".", LOG_LEVEL_INFO);
             if(addNodes(x, insert_nodes, groupID, parse_set) == -1)
             {
                 if(global.skipFailedLinks)
-                    writeLog(0, "The following link doesn't contain any valid node info: " + x, LOG_LEVEL_WARNING);
+                    writeLog(0, "The " + source_name + " failed to download or parse.", LOG_LEVEL_WARNING);
                 else
                 {
                     *status_code = 400;
-                    return "The following link doesn't contain any valid node info: " + x;
+                    return "The " + source_name + " failed to download or parse.";
                 }
             }
             groupID--;
@@ -649,24 +652,34 @@ std::string subconverter(RESPONSE_CALLBACK_ARGS)
     urls = splitUrlSources(argUrl);
     // Remove empty urls
     urls.erase(std::remove_if(urls.begin(), urls.end(), [](const std::string& str) { return str.empty(); }), urls.end());
-    importItems(urls, true);
-    groupID = 0;
-    for(std::string &x : urls)
+    try
     {
-        x = regTrim(x);
-        //std::cerr<<"Fetching node data from url '"<<x<<"'."<<std::endl;
-        writeLog(0, "Fetching node data from url '" + x + "'.", LOG_LEVEL_INFO);
-        if(addNodes(x, nodes, groupID, parse_set) == -1)
+        if(importItems(urls, true) != 0)
         {
-            if(global.skipFailedLinks)
-                writeLog(0, "The following link doesn't contain any valid node info: " + x, LOG_LEVEL_WARNING);
-            else
-            {
-                *status_code = 400;
-                return "The following link doesn't contain any valid node info: " + x;
-            }
+            *status_code = 400;
+            return "A subscription source import failed.";
         }
-        groupID++;
+    }
+    catch(...)
+    {
+        *status_code = 400;
+        return "A subscription source import failed.";
+    }
+
+    const SourceBatchResult source_batch = loadSourcesAtomically<Proxy>(urls, nodes,
+        [&](const std::string &source, std::vector<Proxy> &staged, size_t source_index)
+        {
+            const std::string source_name = "subscription source #" + std::to_string(source_index + 1);
+            writeLog(0, "Fetching " + source_name + ".", LOG_LEVEL_INFO);
+            return addNodes(regTrim(source), staged, static_cast<int>(source_index), parse_set);
+        });
+    if(!source_batch.success)
+    {
+        // User-provided/default subscription inputs are an atomic batch: returning
+        // a partial configuration would silently hide nodes from a failed source.
+        *status_code = 400;
+        return "The subscription source #" + std::to_string(source_batch.failed_source_index + 1) +
+               " failed to download or parse.";
     }
     //exit if found nothing
     if(nodes.empty() && insert_nodes.empty())
@@ -1105,18 +1118,19 @@ std::string surgeConfToClash(RESPONSE_CALLBACK_ARGS)
     parse_set.request_header = &request.headers;
     parse_set.sub_info = &subInfo;
     parse_set.authorized = !global.APIMode;
-    for(std::string &x : links)
+    for(size_t source_index = 0; source_index < links.size(); source_index++)
     {
-        //std::cerr<<"Fetching node data from url '"<<x<<"'."<<std::endl;
-        writeLog(0, "Fetching node data from url '" + x + "'.", LOG_LEVEL_INFO);
+        std::string &x = links[source_index];
+        const std::string source_name = "policy subscription source #" + std::to_string(source_index + 1);
+        writeLog(0, "Fetching " + source_name + ".", LOG_LEVEL_INFO);
         if(addNodes(x, nodes, 0, parse_set) == -1)
         {
             if(global.skipFailedLinks)
-                writeLog(0, "The following link doesn't contain any valid node info: " + x, LOG_LEVEL_WARNING);
+                writeLog(0, "The " + source_name + " failed to download or parse.", LOG_LEVEL_WARNING);
             else
             {
                 *status_code = 400;
-                return "The following link doesn't contain any valid node info: " + x;
+                return "The " + source_name + " failed to download or parse.";
             }
         }
     }

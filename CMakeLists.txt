@@ -184,7 +184,7 @@ IF(SUBCONVERTER_BUILD_TESTS)
     ADD_TEST(NAME subconverter_clash_doh_tests COMMAND subconverter_clash_doh_tests)
 
     ADD_EXECUTABLE(subconverter_mixed_subscription_tests tests/mixed_subscription_test.cpp)
-    TARGET_COMPILE_DEFINITIONS(subconverter_mixed_subscription_tests PRIVATE -DNO_JS_RUNTIME -DNO_WEBGET)
+    TARGET_COMPILE_DEFINITIONS(subconverter_mixed_subscription_tests PRIVATE -DNO_JS_RUNTIME -DNO_WEBGET SUBCONVERTER_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
     TARGET_INCLUDE_DIRECTORIES(subconverter_mixed_subscription_tests PRIVATE ${RAPIDJSON_INCLUDE_DIRS} ${YAML_CPP_INCLUDE_DIRS})
     TARGET_LINK_LIBRARIES(subconverter_mixed_subscription_tests PRIVATE ${BUILD_TARGET_NAME})
     ADD_TEST(NAME subconverter_mixed_subscription_tests COMMAND subconverter_mixed_subscription_tests)

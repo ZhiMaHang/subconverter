@@ -36,7 +36,7 @@ int importItems(string_array &target, bool scope_limit)
             continue;
         }
         path = x.substr(x.find(":") + 1);
-        writeLog(0, "Trying to import items from " + path);
+        writeLog(0, "Trying to import items from a configured source.");
 
         std::string proxy = parseProxy(global.proxyConfig);
 
@@ -45,7 +45,7 @@ int importItems(string_array &target, bool scope_limit)
         else if(isLink(path))
             content = webGet(path, proxy, global.cacheConfig);
         else
-            writeLog(0, "File not found or not a valid URL: " + path, LOG_LEVEL_ERROR);
+            writeLog(0, "Imported item source was not found or is not a valid URL.", LOG_LEVEL_ERROR);
         if(content.empty())
             return -1;
 
@@ -91,13 +91,13 @@ void importItems(std::vector<toml::value> &root, const std::string &import_key, 
         else
         {
             const std::string &path = toml::get<std::string>(table.at("import"));
-            writeLog(0, "Trying to import items from " + path);
+            writeLog(0, "Trying to import TOML items from a configured source.");
             if(fileExist(path))
                 content = fileGet(path, scope_limit);
             else if(isLink(path))
                 content = webGet(path, proxy, global.cacheConfig);
             else
-                writeLog(0, "File not found or not a valid URL: " + path, LOG_LEVEL_ERROR);
+                writeLog(0, "Imported TOML item source was not found or is not a valid URL.", LOG_LEVEL_ERROR);
             if(!content.empty())
             {
                 auto items = parseToml(content, path);

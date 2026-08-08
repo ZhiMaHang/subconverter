@@ -114,9 +114,9 @@ static inline void buffer_cleanup(struct evbuffer *eb)
 
 static int process_request(WebServer *server, Request &request, Response &response, std::string &return_data)
 {
-    writeLog(0, "handle_cmd:    " + request.method + " handle_uri:    " + request.url, LOG_LEVEL_VERBOSE);
-
     string_size pos = request.url.find('?');
+    const std::string request_path = pos == std::string::npos ? request.url : request.url.substr(0, pos);
+    writeLog(0, "handle_cmd:    " + request.method + " handle_uri:    " + request_path, LOG_LEVEL_VERBOSE);
     if(pos != std::string::npos)
     {
         auto argument = split(request.url.substr(pos + 1), "&");
@@ -151,11 +151,8 @@ static int process_request(WebServer *server, Request &request, Response &respon
             }
             catch(std::exception &e)
             {
-                return_data = "Internal server error while processing request path '" + request.url + "' with arguments '" + joinArguments(request.argument) + "'!";
-                return_data += "\n  exception: ";
-                return_data += type(e);
-                return_data += "\n  what(): ";
-                return_data += e.what();
+                (void)e;
+                return_data = "Internal server error while processing request.";
                 response.content_type = "text/plain";
                 response.status_code = 500;
                 writeLog(0, return_data, LOG_LEVEL_ERROR);

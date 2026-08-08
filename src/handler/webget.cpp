@@ -79,52 +79,13 @@ static int size_checker(void *clientp, curl_off_t, curl_off_t dlnow, curl_off_t,
     return 0;
 }
 
-static int logger(CURL *handle, curl_infotype type, char *data, size_t size, void *userptr)
-{
-    (void)handle;
-    (void)userptr;
-    std::string prefix;
-    switch(type)
-    {
-    case CURLINFO_TEXT:
-        prefix = "CURL_INFO: ";
-        break;
-    case CURLINFO_HEADER_IN:
-        prefix = "CURL_HEADER: < ";
-        break;
-    case CURLINFO_HEADER_OUT:
-        prefix = "CURL_HEADER: > ";
-        break;
-    case CURLINFO_DATA_IN:
-    case CURLINFO_DATA_OUT:
-    default:
-        return 0;
-    }
-    std::string content(data, size);
-    if(content.find("\r\n") != std::string::npos)
-    {
-        string_array lines = split(content, "\r\n");
-        for(auto &x : lines)
-        {
-            std::string log_content = prefix;
-            log_content += x;
-            writeLog(0, log_content, LOG_LEVEL_VERBOSE);
-        }
-    }
-    else
-    {
-        std::string log_content = prefix;
-        log_content += trimWhitespace(content);
-        writeLog(0, log_content, LOG_LEVEL_VERBOSE);
-    }
-    return 0;
-}
-
 static inline void curl_set_common_options(CURL *curl_handle, const char *url, curl_progress_data *data)
 {
     curl_easy_setopt(curl_handle, CURLOPT_URL, url);
-    curl_easy_setopt(curl_handle, CURLOPT_VERBOSE, global.logLevel == LOG_LEVEL_VERBOSE ? 1L : 0L);
-    curl_easy_setopt(curl_handle, CURLOPT_DEBUGFUNCTION, logger);
+    // libcurl verbose output includes request paths and headers, which may carry
+    // subscription tokens or authorization credentials. Keep it disabled even
+    // when application-level verbose logging is enabled.
+    curl_easy_setopt(curl_handle, CURLOPT_VERBOSE, 0L);
     curl_easy_setopt(curl_handle, CURLOPT_NOPROGRESS, 0L);
     curl_easy_setopt(curl_handle, CURLOPT_NOSIGNAL, 1L);
     curl_easy_setopt(curl_handle, CURLOPT_FOLLOWLOCATION, 1L);
@@ -319,7 +280,7 @@ std::string webGet(const std::string &url, const std::string &proxy, unsigned in
             time_t mtime = result.st_mtime, now = time(nullptr); // get cache modified time and current time
             if(difftime(now, mtime) <= cache_ttl) // within TTL
             {
-                writeLog(0, "CACHE HIT: '" + url + "', using local cache.");
+                writeLog(0, "CACHE HIT: using local cache.");
                 //guarded_mutex guard(cache_rw_lock);
                 cache_rw_lock.readLock();
                 defer(cache_rw_lock.readUnlock();)
@@ -327,10 +288,10 @@ std::string webGet(const std::string &url, const std::string &proxy, unsigned in
                     *response_headers = fileGet(path_header, true);
                 return fileGet(path, true);
             }
-            writeLog(0, "CACHE MISS: '" + url + "', TTL timeout, creating new cache."); // out of TTL
+            writeLog(0, "CACHE MISS: TTL timeout, creating new cache."); // out of TTL
         }
         else
-            writeLog(0, "CACHE NOT EXIST: '" + url + "', creating new cache.");
+            writeLog(0, "CACHE NOT EXIST: creating new cache.");
         //content = curlGet(url, proxy, response_headers, return_code); // try to fetch data
         curlGet(argument, fetch_res);
         if(return_code == 200) // success, save new cache
