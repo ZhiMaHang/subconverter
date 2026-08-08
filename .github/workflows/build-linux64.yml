@@ -82,9 +82,10 @@ jobs:
           set -euo pipefail
           mkdir -p dist
           tar -czf dist/subconverter_linux64.tar.gz subconverter
-          sha256sum dist/subconverter_linux64.tar.gz > dist/subconverter_linux64.tar.gz.sha256
-          tar -tzf dist/subconverter_linux64.tar.gz | grep -qx 'subconverter/subconverter'
+          tar -tzf dist/subconverter_linux64.tar.gz > /tmp/subconverter_linux64.contents
+          grep -qx 'subconverter/subconverter' /tmp/subconverter_linux64.contents
           cd dist
+          sha256sum subconverter_linux64.tar.gz > subconverter_linux64.tar.gz.sha256
           sha256sum -c subconverter_linux64.tar.gz.sha256
 
       - name: Upload Linux x64 package
