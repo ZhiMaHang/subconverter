@@ -18,6 +18,9 @@ inline constexpr const char *OpenAIName = "OpenAI";
 inline constexpr const char *AnthropicName = "Anthropic";
 inline constexpr const char *ToDeskDomain = "todesk.com";
 inline constexpr const char *ToDeskDirectRule = "DOMAIN-SUFFIX,todesk.com,DIRECT";
+inline constexpr const char *MainProxyGroupName = "🚀 节点选择";
+inline constexpr const char *IPInfoDomain = "ipinfo.cv";
+inline constexpr const char *IPInfoProxyRule = "DOMAIN-SUFFIX,ipinfo.cv,🚀 节点选择";
 
 inline constexpr const char *TaiwanGroupName = "🇨🇳 台湾节点";
 inline constexpr const char *AIPlatformGroupName = "💬 Ai平台";
@@ -91,6 +94,144 @@ inline bool isClashCompatibleGroup(const ProxyGroupConfig &group)
         return false;
     }
     return false;
+}
+
+inline bool isMainProxyGroupName(const std::string &name)
+{
+    return name == MainProxyGroupName;
+}
+
+struct GroupClosure
+{
+    bool Closed = true;
+    bool ReachesGeneratedProxy = false;
+};
+
+inline GroupClosure inspectGroupClosure(const ProxyGroupConfig &group, const ProxyGroupConfigs &groups,
+                                        std::vector<std::string> &visited_groups)
+{
+    switch(group.Type)
+    {
+    case ProxyGroupType::Select:
+    case ProxyGroupType::URLTest:
+    case ProxyGroupType::Fallback:
+    case ProxyGroupType::LoadBalance:
+    case ProxyGroupType::Smart:
+        break;
+    case ProxyGroupType::Relay:
+    case ProxyGroupType::SSID:
+        return {false, false};
+    }
+
+    // Provider definitions live outside ProxyGroupConfigs and cannot be
+    // proven to exist here. Rebuild a safe matcher group instead of retaining
+    // a potentially dangling `use` entry.
+    if(!group.UsingProvider.empty())
+        return {false, false};
+
+    GroupClosure result;
+    for(const std::string &proxy : group.Proxies)
+    {
+        if(trim(proxy).empty())
+            continue;
+        if(!startsWith(proxy, "[]"))
+        {
+            result.ReachesGeneratedProxy = true;
+            continue;
+        }
+
+        const std::string referenced_name = proxy.substr(2);
+        if(referenced_name == "DIRECT" || referenced_name == "REJECT")
+            continue;
+        if(referenced_name.empty() ||
+           std::find(visited_groups.cbegin(), visited_groups.cend(), referenced_name) != visited_groups.cend())
+            return {false, false};
+
+        const ProxyGroupConfig *referenced = nullptr;
+        for(auto referenced_group = groups.crbegin(); referenced_group != groups.crend(); referenced_group++)
+        {
+            if(referenced_group->Name == referenced_name && isClashCompatibleGroup(*referenced_group))
+            {
+                referenced = &*referenced_group;
+                break;
+            }
+        }
+        if(referenced == nullptr)
+            return {false, false};
+
+        visited_groups.emplace_back(referenced_name);
+        const GroupClosure referenced_closure = inspectGroupClosure(*referenced, groups, visited_groups);
+        visited_groups.pop_back();
+        if(!referenced_closure.Closed)
+            return {false, false};
+        result.ReachesGeneratedProxy = result.ReachesGeneratedProxy || referenced_closure.ReachesGeneratedProxy;
+    }
+    return result;
+}
+
+inline bool isSelectableMainProxyGroup(const ProxyGroupConfig &group, const ProxyGroupConfigs &groups)
+{
+    std::vector<std::string> visited_groups{MainProxyGroupName};
+    const GroupClosure closure = inspectGroupClosure(group, groups, visited_groups);
+    return closure.Closed && closure.ReachesGeneratedProxy;
+}
+
+// ipinfo.cv is forced to this group in every complete Clash configuration.
+// Preserve the last usable external definition (matching the exporter's
+// last-wins behavior); otherwise create a proxy-only, fail-closed fallback.
+inline void ensureMainProxyGroup(ProxyGroupConfigs &groups)
+{
+    ProxyGroupConfig selected_group;
+    bool found_selected_group = false;
+    size_t selected_original_index = groups.size();
+    size_t first_matching_index = groups.size();
+
+    for(size_t index = 0; index < groups.size(); index++)
+    {
+        const ProxyGroupConfig &group = groups[index];
+        if(!isMainProxyGroupName(group.Name))
+            continue;
+        if(first_matching_index == groups.size())
+            first_matching_index = index;
+        if(isSelectableMainProxyGroup(group, groups))
+        {
+            selected_group = group;
+            selected_original_index = index;
+            found_selected_group = true;
+        }
+    }
+
+    const size_t original_insertion_index = found_selected_group ? selected_original_index : first_matching_index;
+    size_t insertion_index = 0;
+    if(original_insertion_index == groups.size())
+        insertion_index = groups.size();
+    else
+    {
+        insertion_index = static_cast<size_t>(std::count_if(groups.cbegin(),
+            groups.cbegin() + static_cast<std::ptrdiff_t>(original_insertion_index),
+            [](const ProxyGroupConfig &group) { return !isMainProxyGroupName(group.Name); }));
+    }
+
+    groups.erase(std::remove_if(groups.begin(), groups.end(), [](const ProxyGroupConfig &group)
+    {
+        return isMainProxyGroupName(group.Name);
+    }), groups.end());
+
+    if(!found_selected_group)
+    {
+        selected_group = ProxyGroupConfig{};
+        selected_group.Type = ProxyGroupType::Select;
+        selected_group.Proxies = {".*", "[]REJECT"};
+    }
+    selected_group.Name = MainProxyGroupName;
+    if(std::none_of(selected_group.Proxies.cbegin(), selected_group.Proxies.cend(), [](const std::string &proxy)
+    {
+        return proxy == "[]REJECT";
+    }))
+        selected_group.Proxies.emplace_back("[]REJECT");
+
+    groups.insert(groups.begin() + static_cast<std::ptrdiff_t>(std::min(insertion_index, groups.size())),
+                  std::move(selected_group));
 }
 
 inline bool reachesManagedGroup(const ProxyGroupConfig &group, const ProxyGroupConfigs &groups,

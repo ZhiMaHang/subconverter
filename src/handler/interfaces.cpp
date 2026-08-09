@@ -510,10 +510,11 @@ std::string subconverter(RESPONSE_CALLBACK_ARGS)
             }
         }
     }
-    if(ext.enable_rule_generator && !ext.nodelist && !lSimpleSubscription &&
-       (argTarget == "clash" || argTarget == "clashr"))
+    if(!ext.nodelist && !lSimpleSubscription && (argTarget == "clash" || argTarget == "clashr"))
     {
-        service_policy::enforce(lCustomProxyGroups, lCustomRulesets);
+        service_policy::ensureMainProxyGroup(lCustomProxyGroups);
+        if(ext.enable_rule_generator)
+            service_policy::enforce(lCustomProxyGroups, lCustomRulesets);
     }
     if(ext.enable_rule_generator && !ext.nodelist && !lSimpleSubscription)
     {

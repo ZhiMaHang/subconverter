@@ -77,6 +77,8 @@ To merge subscriptions and single-node links, put one source on each line before
 
 Full Clash/ClashR configurations normalize `DOMAIN-SUFFIX,todesk.com,DIRECT` as the first routing rule, so the ToDesk root domain and subdomains always connect directly. This applies to expanded rules, rule providers, disabled rule generation, and Clash script mode.
 
+`DOMAIN-SUFFIX,ipinfo.cv,🚀 节点选择` follows it, routing the `ipinfo.cv` root domain and subdomains through the main proxy selection group. If an external configuration lacks a usable `🚀 节点选择` group, a proxy-matching fallback group that rejects when empty is created automatically.
+
 Example:
 
 ```txt

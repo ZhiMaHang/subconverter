@@ -62,7 +62,7 @@ std::vector<RulesetContent> makeRulesetContent()
          service_policy::UpdateInterval},
         {service_policy::OpenAIName, service_policy::OpenAIRulesetUrl, service_policy::TypedOpenAIRulesetUrl,
          RULESET_CLASH_CLASSICAL,
-         readyFuture("payload:\n  - DOMAIN-SUFFIX,openai.example\n  - IP-ASN,20473\n"),
+         readyFuture("payload:\n  - DOMAIN-SUFFIX,openai.example\n  - DOMAIN-SUFFIX,ipinfo.cv\n  - IP-ASN,20473\n"),
          service_policy::UpdateInterval},
         {service_policy::AnthropicName, service_policy::AnthropicRulesetUrl, service_policy::TypedAnthropicRulesetUrl,
          RULESET_CLASH_CLASSICAL,
@@ -108,7 +108,7 @@ bool hasYamlKey(const YAML::Node &config, const std::string &key)
     return false;
 }
 
-bool isToDeskDomainRule(const std::string &rule)
+bool isDomainRuleFor(const std::string &rule, const std::string &domain)
 {
     string_view_array fields;
     split(fields, rule, ',');
@@ -116,12 +116,23 @@ bool isToDeskDomainRule(const std::string &rule)
         return false;
     const std::string type = toUpper(trim(std::string(fields[0])));
     const std::string value = toLower(trim(std::string(fields[1])));
-    return (type == "DOMAIN" || type == "DOMAIN-SUFFIX") && value == service_policy::ToDeskDomain;
+    return (type == "DOMAIN" || type == "DOMAIN-SUFFIX") && value == domain;
 }
 
 size_t countToDeskDomainRules(const std::vector<std::string> &rules)
 {
-    return static_cast<size_t>(std::count_if(rules.cbegin(), rules.cend(), isToDeskDomainRule));
+    return static_cast<size_t>(std::count_if(rules.cbegin(), rules.cend(), [](const std::string &rule)
+    {
+        return isDomainRuleFor(rule, service_policy::ToDeskDomain);
+    }));
+}
+
+size_t countIPInfoDomainRules(const std::vector<std::string> &rules)
+{
+    return static_cast<size_t>(std::count_if(rules.cbegin(), rules.cend(), [](const std::string &rule)
+    {
+        return isDomainRuleFor(rule, service_policy::IPInfoDomain);
+    }));
 }
 
 size_t ruleIndex(const std::vector<std::string> &rules, const std::string &expected)
@@ -139,14 +150,56 @@ void requireCanonicalToDeskRule(const std::vector<std::string> &rules, const std
             context + " must remove conflicting and duplicate ToDesk domain rules");
 }
 
+void requireCanonicalManagedDomainRules(const std::vector<std::string> &rules, const std::string &context)
+{
+    requireCanonicalToDeskRule(rules, context);
+    require(rules.size() > 1 && rules[1] == service_policy::IPInfoProxyRule,
+            context + " must put the canonical ipinfo.cv proxy rule second");
+    require(countIPInfoDomainRules(rules) == 1,
+            context + " must remove conflicting and duplicate ipinfo.cv domain rules");
+}
+
+const YAML::Node proxyGroupsNode(const YAML::Node &config)
+{
+    for(const auto &entry : config)
+    {
+        const std::string key = entry.first.as<std::string>();
+        if((key == "proxy-groups" || key == "Proxy Group") && entry.second.IsSequence())
+            return entry.second;
+    }
+    return YAML::Node();
+}
+
 const YAML::Node findYamlGroup(const YAML::Node &config, const std::string &name)
 {
-    for(const YAML::Node &group : config["proxy-groups"])
+    for(const YAML::Node &group : proxyGroupsNode(config))
     {
         if(group["name"].as<std::string>() == name)
             return group;
     }
     throw std::runtime_error("missing generated proxy group: " + name);
+}
+
+size_t countYamlGroupsNamed(const YAML::Node &config, const std::string &name)
+{
+    size_t count = 0;
+    for(const YAML::Node &group : proxyGroupsNode(config))
+    {
+        if(group["name"].as<std::string>() == name)
+            count++;
+    }
+    return count;
+}
+
+void requireIPInfoTargetGroup(const YAML::Node &config, const std::vector<std::string> &rules,
+                              const std::string &context)
+{
+    requireCanonicalManagedDomainRules(rules, context);
+    require(countYamlGroupsNamed(config, service_policy::MainProxyGroupName) == 1,
+            context + " must emit exactly one ipinfo.cv target proxy group");
+    const YAML::Node group = findYamlGroup(config, service_policy::MainProxyGroupName);
+    require(group["proxies"].IsSequence() && group["proxies"].size() > 0,
+            context + " must not emit an empty ipinfo.cv target proxy group");
 }
 
 void requireYamlProxies(const YAML::Node &group, const std::vector<std::string> &expected,
@@ -160,13 +213,18 @@ void requireYamlProxies(const YAML::Node &group, const std::vector<std::string> 
     }
 }
 
-void testToDeskRuleNormalizationIsIdempotent()
+void testManagedDomainRuleNormalizationIsIdempotent()
 {
     std::vector<std::string> rules{
+        "DOMAIN-SUFFIX, IPINFO.CV ,DIRECT",
         "DOMAIN,todesk.com,External",
         "DOMAIN-SUFFIX,openai.example,OpenAI",
+        "DOMAIN,ipinfo.cv,REJECT",
         "DOMAIN-SUFFIX, ToDesk.COM ,REJECT",
+        service_policy::IPInfoProxyRule,
         service_policy::ToDeskDirectRule,
+        "DOMAIN-SUFFIX,notipinfo.cv,External",
+        "DOMAIN-SUFFIX,ipinfo.cv.example,External",
         "DOMAIN-SUFFIX,example.com,External",
         "MATCH,Fallback"
     };
@@ -174,13 +232,158 @@ void testToDeskRuleNormalizationIsIdempotent()
     prioritizeManagedServiceRules(rules);
     prioritizeManagedServiceRules(rules);
 
-    requireCanonicalToDeskRule(rules, "repeated managed-rule finalization");
+    requireCanonicalManagedDomainRules(rules, "repeated managed-rule finalization");
     require(rules == std::vector<std::string>({
                 service_policy::ToDeskDirectRule,
+                service_policy::IPInfoProxyRule,
                 "DOMAIN-SUFFIX,openai.example,OpenAI",
+                "DOMAIN-SUFFIX,notipinfo.cv,External",
+                "DOMAIN-SUFFIX,ipinfo.cv.example,External",
                 "DOMAIN-SUFFIX,example.com,External",
                 "MATCH,Fallback"
-            }), "ToDesk normalization changed managed priority or unrelated rule order");
+            }), "managed-domain normalization changed priority or removed a similar unrelated domain");
+}
+
+void testMainProxyGroupNormalization()
+{
+    auto requireCanonicalFallback = [](ProxyGroupConfigs groups, const std::string &context)
+    {
+        service_policy::ensureMainProxyGroup(groups);
+        service_policy::ensureMainProxyGroup(groups);
+        require(countGroupsNamed(groups, service_policy::MainProxyGroupName) == 1,
+                context + " must emit exactly one canonical main proxy group");
+        const ProxyGroupConfig &group = findGroup(groups, service_policy::MainProxyGroupName);
+        require(group.Type == ProxyGroupType::Select,
+                context + " must normalize the main proxy group to Select");
+        require(group.Proxies == string_array({".*", "[]REJECT"}),
+                context + " must normalize the main proxy group to a proxy-only fail-closed fallback");
+    };
+
+    requireCanonicalFallback({}, "missing group");
+
+    ProxyGroupConfig spaced_alias;
+    spaced_alias.Name = std::string(" ") + service_policy::MainProxyGroupName + " ";
+    spaced_alias.Type = ProxyGroupType::Select;
+    spaced_alias.Proxies = {".*"};
+    ProxyGroupConfig alias_consumer;
+    alias_consumer.Name = "LegacyRef";
+    alias_consumer.Type = ProxyGroupType::Select;
+    alias_consumer.Proxies = {std::string("[]") + spaced_alias.Name};
+    ProxyGroupConfigs aliased_groups{spaced_alias, alias_consumer};
+    service_policy::ensureMainProxyGroup(aliased_groups);
+    service_policy::ensureMainProxyGroup(aliased_groups);
+    require(countGroupsNamed(aliased_groups, spaced_alias.Name) == 1 &&
+            findGroup(aliased_groups, "LegacyRef").Proxies == string_array({std::string("[]") + spaced_alias.Name}),
+            "a whitespace-bearing legacy group name and its exact inbound reference must remain unchanged");
+    require(findGroup(aliased_groups, service_policy::MainProxyGroupName).Proxies ==
+                string_array({".*", "[]REJECT"}),
+            "a whitespace-bearing alias must not replace the exact canonical main proxy group");
+
+    ProxyGroupConfig ssid;
+    ssid.Name = service_policy::MainProxyGroupName;
+    ssid.Type = ProxyGroupType::SSID;
+    requireCanonicalFallback({ssid}, "SSID group");
+
+    ProxyGroupConfig empty;
+    empty.Name = service_policy::MainProxyGroupName;
+    empty.Type = ProxyGroupType::Select;
+    requireCanonicalFallback({empty}, "empty group");
+
+    ProxyGroupConfig direct_only;
+    direct_only.Name = service_policy::MainProxyGroupName;
+    direct_only.Type = ProxyGroupType::Select;
+    direct_only.Proxies = {"[]DIRECT"};
+    requireCanonicalFallback({direct_only}, "DIRECT-only group");
+
+    ProxyGroupConfig padded_reject = direct_only;
+    padded_reject.Proxies = {" []REJECT"};
+    ProxyGroupConfigs padded_reject_groups{padded_reject};
+    service_policy::ensureMainProxyGroup(padded_reject_groups);
+    service_policy::ensureMainProxyGroup(padded_reject_groups);
+    require(findGroup(padded_reject_groups, service_policy::MainProxyGroupName).Proxies ==
+                string_array({" []REJECT", "[]REJECT"}),
+            "a matcher that only resembles REJECT after trimming must still get an exact fail-closed candidate");
+
+    ProxyGroupConfig provider_only;
+    provider_only.Name = service_policy::MainProxyGroupName;
+    provider_only.Type = ProxyGroupType::Select;
+    provider_only.UsingProvider = {"MissingProvider"};
+    requireCanonicalFallback({provider_only}, "provider-only group");
+    provider_only.Proxies = {".*"};
+    requireCanonicalFallback({provider_only}, "group mixing a matcher with an unverifiable provider");
+
+    ProxyGroupConfig dangling;
+    dangling.Name = service_policy::MainProxyGroupName;
+    dangling.Type = ProxyGroupType::Select;
+    dangling.Proxies = {"[]Missing"};
+    requireCanonicalFallback({dangling}, "dangling group reference");
+    dangling.Proxies = {".*", "[]Missing"};
+    requireCanonicalFallback({dangling}, "group mixing a matcher with a dangling reference");
+    ProxyGroupConfig exact_auto;
+    exact_auto.Name = "Auto";
+    exact_auto.Type = ProxyGroupType::URLTest;
+    exact_auto.Proxies = {".*"};
+    dangling.Proxies = {".*", "[]Auto "};
+    requireCanonicalFallback({dangling, exact_auto}, "literal reference with trailing whitespace");
+    dangling.Proxies = {".*", "[] DIRECT "};
+    requireCanonicalFallback({dangling}, "whitespace-padded pseudo builtin reference");
+
+    ProxyGroupConfig loop;
+    loop.Name = "Loop";
+    loop.Type = ProxyGroupType::Select;
+    loop.Proxies = {std::string("[]") + service_policy::MainProxyGroupName};
+    ProxyGroupConfig cyclic = dangling;
+    cyclic.Proxies = {".*", "[]Loop"};
+    requireCanonicalFallback({cyclic, loop}, "cyclic group reference");
+
+    ProxyGroupConfig reachable;
+    reachable.Name = "Auto";
+    reachable.Type = ProxyGroupType::URLTest;
+    reachable.Proxies = {".*"};
+    ProxyGroupConfig referenced = dangling;
+    referenced.Proxies = {"[]Auto"};
+    ProxyGroupConfigs referenced_groups{referenced, reachable};
+    service_policy::ensureMainProxyGroup(referenced_groups);
+    require(findGroup(referenced_groups, service_policy::MainProxyGroupName).Proxies ==
+                string_array({"[]Auto", "[]REJECT"}),
+            "a main group that reaches generated proxy nodes through another group must be preserved");
+
+    ProxyGroupConfig broken_reachable = reachable;
+    broken_reachable.Proxies = {".*", "[]Missing"};
+    requireCanonicalFallback({referenced, broken_reachable},
+                             "reference to a group that also has a dangling candidate");
+
+    ProxyGroupConfig spaced_reachable = reachable;
+    spaced_reachable.Name = " Auto ";
+    requireCanonicalFallback({referenced, spaced_reachable},
+                             "reference whose target only matches after trimming");
+
+    ProxyGroupConfig invalid_last_reachable = reachable;
+    invalid_last_reachable.UsingProvider = {"MissingProvider"};
+    requireCanonicalFallback({referenced, reachable, invalid_last_reachable},
+                             "reference whose last exported target definition is invalid");
+
+    ProxyGroupConfig valid;
+    valid.Name = service_policy::MainProxyGroupName;
+    valid.Type = ProxyGroupType::Select;
+    valid.Proxies = {"[]Auto", "[]TW", "[]DIRECT", ".*"};
+    valid.Url = "https://example.com/preserved";
+    valid.Interval = 321;
+
+    ProxyGroupConfig invalid_duplicate = ssid;
+    invalid_duplicate.Name = std::string(" ") + service_policy::MainProxyGroupName + " ";
+    ProxyGroupConfig taiwan = reachable;
+    taiwan.Name = "TW";
+    ProxyGroupConfigs full_style_groups{valid, reachable, taiwan, invalid_duplicate};
+    service_policy::ensureMainProxyGroup(full_style_groups);
+    service_policy::ensureMainProxyGroup(full_style_groups);
+    require(countGroupsNamed(full_style_groups, service_policy::MainProxyGroupName) == 1,
+            "a valid Full-style group and its invalid duplicate must normalize to one exact group");
+    const ProxyGroupConfig &preserved = findGroup(full_style_groups, service_policy::MainProxyGroupName);
+    require(preserved.Type == valid.Type && preserved.Url == valid.Url && preserved.Interval == valid.Interval,
+            "a valid Full-style main proxy group lost its settings");
+    require(preserved.Proxies == string_array({"[]Auto", "[]TW", "[]DIRECT", ".*", "[]REJECT"}),
+            "a valid Full-style main proxy group was rebuilt instead of preserving its candidates safely");
 }
 
 void testExternalConfigCannotRemoveManagedPolicies()
@@ -367,11 +570,16 @@ void testProviderModeEmitsAllManagedRuleSets()
         nodes, "mode: rule\nrules:\n"
                "  - DOMAIN,todesk.com,External\n"
                "  - DOMAIN-SUFFIX, ToDesk.COM ,REJECT\n"
+               "  - DOMAIN,ipinfo.cv,DIRECT\n"
+               "  - DOMAIN-SUFFIX, IPINFO.CV ,REJECT\n"
+               "  - DOMAIN-SUFFIX,notipinfo.cv,External\n"
                "  - GEOIP,CN,OpenAI\n"
                "  - MATCH,Base\n",
         ruleset_content, groups, false, ext));
     const std::vector<std::string> rules = readRules(config);
-    requireCanonicalToDeskRule(rules, "provider mode");
+    requireIPInfoTargetGroup(config, rules, "provider mode");
+    require(std::find(rules.cbegin(), rules.cend(), "DOMAIN-SUFFIX,notipinfo.cv,External") != rules.cend(),
+            "provider mode removed a similar non-ipinfo.cv domain");
 
     struct ProviderExpectation
     {
@@ -384,8 +592,8 @@ void testProviderModeEmitsAllManagedRuleSets()
         {service_policy::AnthropicName, service_policy::AnthropicRulesetUrl}
     }};
     require(config["rule-providers"].IsMap() && config["rule-providers"].size() == providers.size(),
-            "provider mode must not create a ToDesk provider for one fixed domain");
-    require(rules.size() >= providers.size() + 2, "provider mode emitted too few rules");
+            "provider mode must not create a provider for either fixed managed domain");
+    require(rules.size() >= providers.size() + 3, "provider mode emitted too few rules");
     for(size_t index = 0; index < providers.size(); index++)
     {
         const ProviderExpectation &expected = providers[index];
@@ -397,7 +605,7 @@ void testProviderModeEmitsAllManagedRuleSets()
                 std::string(expected.Name) + " rule provider URL is wrong");
         require(provider["interval"].as<int>() == service_policy::UpdateInterval,
                 std::string(expected.Name) + " provider interval must be 24 hours");
-        require(rules[index + 1] == std::string("RULE-SET,") + expected.Name + "," + expected.Name,
+        require(rules[index + 2] == std::string("RULE-SET,") + expected.Name + "," + expected.Name,
                 "managed provider rules are not in Binance/OpenAI/Anthropic order");
     }
     const auto match = std::find(rules.cbegin(), rules.cend(), "MATCH,Fallback");
@@ -407,13 +615,15 @@ void testProviderModeEmitsAllManagedRuleSets()
             "provider mode must retain base rules when overwrite_original_rules is false");
     const auto doh_rule = std::find(rules.cbegin(), rules.cend(), "GEOIP,CN,DIRECT,no-resolve");
     require(doh_rule != rules.cend() &&
-            static_cast<size_t>(std::distance(rules.cbegin(), doh_rule)) > providers.size() && doh_rule < match,
+            static_cast<size_t>(std::distance(rules.cbegin(), doh_rule)) > providers.size() + 1 && doh_rule < match,
             "managed provider rules must remain ahead of the normalized DoH CN rule");
 
     requireYamlProxies(findYamlGroup(config, service_policy::TaiwanGroupName), {"TW01", "REJECT"},
                        "Taiwan policy group must never fall back to DIRECT");
     requireYamlProxies(findYamlGroup(config, service_policy::AIPlatformGroupName), {"US01", "REJECT"},
                        "AI platform group must retain compatible nodes and reject safely");
+    requireYamlProxies(findYamlGroup(config, service_policy::MainProxyGroupName), {"TW01", "US01", "REJECT"},
+                       "the ipinfo.cv target group must contain real proxy nodes and reject safely");
     requireYamlProxies(findYamlGroup(config, service_policy::BinanceName),
                        {service_policy::TaiwanGroupName, "TW01", "REJECT"},
                        "Binance must prefer the Taiwan group, then matching nodes, then REJECT");
@@ -481,11 +691,18 @@ void testExpandedModeExpandsAllManagedRules()
         nodes, "mode: rule\nrules:\n"
                "  - DOMAIN,todesk.com,External\n"
                "  - DOMAIN-SUFFIX, ToDesk.COM ,REJECT\n"
+               "  - DOMAIN,ipinfo.cv,DIRECT\n"
+               "  - DOMAIN-SUFFIX, IPINFO.CV ,REJECT\n"
+               "  - DOMAIN-SUFFIX,notipinfo.cv,External\n"
                "  - GEOIP,CN,OpenAI\n"
                "  - MATCH,Base\n",
         ruleset_content, groups, false, ext));
     const std::vector<std::string> rules = readRules(config);
-    requireCanonicalToDeskRule(rules, "expanded mode");
+    requireIPInfoTargetGroup(config, rules, "expanded mode");
+    require(std::find(rules.cbegin(), rules.cend(), "DOMAIN-SUFFIX,notipinfo.cv,External") != rules.cend(),
+            "expanded mode removed a similar non-ipinfo.cv domain");
+    requireYamlProxies(findYamlGroup(config, service_policy::MainProxyGroupName), {"REJECT"},
+                       "an empty expanded configuration must keep the ipinfo.cv target group fail closed");
 
     require(!config["rule-providers"].IsDefined(), "expanded mode must not emit managed rule providers");
     require(std::none_of(rules.cbegin(), rules.cend(), [](const std::string &rule)
@@ -500,7 +717,7 @@ void testExpandedModeExpandsAllManagedRules()
         "DOMAIN-SUFFIX,anthropic.example,Anthropic"
     };
     require(rules.size() >= expected.size() + 2, "expanded mode emitted too few rules");
-    require(std::equal(expected.cbegin(), expected.cend(), rules.cbegin() + 1),
+    require(std::equal(expected.cbegin(), expected.cend(), rules.cbegin() + 2),
             "expanded rules must preserve Binance/OpenAI/Anthropic order and the OpenAI IP-ASN rule");
     const auto match = std::find(rules.cbegin(), rules.cend(), "MATCH,Fallback");
     require(match != rules.cend() && static_cast<size_t>(std::distance(rules.cbegin(), match)) >= expected.size(),
@@ -511,7 +728,7 @@ void testExpandedModeExpandsAllManagedRules()
             "expanded managed rules must precede retained base MATCH rules");
     const auto doh_rule = std::find(rules.cbegin(), rules.cend(), "GEOIP,CN,DIRECT,no-resolve");
     require(doh_rule != rules.cend() &&
-            static_cast<size_t>(std::distance(rules.cbegin(), doh_rule)) > expected.size() &&
+            static_cast<size_t>(std::distance(rules.cbegin(), doh_rule)) > expected.size() + 1 &&
             doh_rule < base_match && doh_rule < match,
             "expanded managed rules must remain ahead of the normalized DoH CN rule");
 }
@@ -522,26 +739,36 @@ void testDisabledRuleGeneratorNormalizesLegacyRulesWithDoh()
     std::vector<RulesetContent> ruleset_content;
     ProxyGroupConfigs groups;
     extra_settings ext;
-    ext.clash_new_field_name = true;
+    ext.clash_new_field_name = false;
     ext.enable_rule_generator = false;
     ext.clash_doh = true;
+    ext.clash_script = true;
 
     const YAML::Node config = YAML::Load(proxyToClash(
-        nodes, "Mode: Rule\nRule:\n"
+        nodes, "Mode: Script\nRule:\n"
                "  - DOMAIN,todesk.com,External\n"
                "  - DOMAIN-SUFFIX, ToDesk.COM ,REJECT\n"
+               "  - DOMAIN,ipinfo.cv,DIRECT\n"
+               "  - DOMAIN-SUFFIX, IPINFO.CV ,REJECT\n"
+               "  - DOMAIN-SUFFIX,notipinfo.cv,External\n"
                "  - GEOIP,CN,External\n"
                "  - MATCH,Fallback\n",
-        ruleset_content, groups, false, ext));
+        ruleset_content, groups, true, ext));
     require(hasYamlKey(config, "Rule") && !hasYamlKey(config, "rules"),
             "disabled rule generation must preserve the legacy Rule field");
+    require(config["Mode"].as<std::string>() == "Rule" && !hasYamlKey(config, "mode"),
+            "disabled rule generation must force rule mode when the base or request selects script mode");
 
     const std::vector<std::string> rules = readRules(config);
-    requireCanonicalToDeskRule(rules, "disabled rule generation with legacy Rule");
+    requireIPInfoTargetGroup(config, rules, "disabled rule generation with legacy Rule");
+    require(std::find(rules.cbegin(), rules.cend(), "DOMAIN-SUFFIX,notipinfo.cv,External") != rules.cend(),
+            "legacy no-generator mode removed a similar non-ipinfo.cv domain");
+    requireYamlProxies(findYamlGroup(config, service_policy::MainProxyGroupName), {"REJECT"},
+                       "legacy no-generator mode must keep an empty ipinfo.cv target group fail closed");
     const size_t doh_index = ruleIndex(rules, "GEOIP,CN,DIRECT,no-resolve");
     const size_t match_index = ruleIndex(rules, "MATCH,Fallback");
-    require(doh_index == 1 && match_index != std::string::npos && doh_index < match_index,
-            "ToDesk must precede the one normalized DoH rule and terminal MATCH in legacy mode");
+    require(doh_index > 1 && match_index != std::string::npos && doh_index < match_index,
+            "managed domains must precede the one normalized DoH rule and terminal MATCH in legacy mode");
 }
 
 void testScriptModeDirectsToDeskBeforeProviders()
@@ -559,23 +786,38 @@ void testScriptModeDirectsToDeskBeforeProviders()
     ext.clash_script = true;
 
     const YAML::Node config = YAML::Load(proxyToClash(
-        nodes, "mode: rule\n", ruleset_content, groups, false, ext));
+        nodes, "log-level: info\n", ruleset_content, groups, false, ext));
     require(config["mode"].as<std::string>() == "script", "script mode was not enabled");
     require(config["script"]["code"].IsScalar(), "script mode did not emit executable routing code");
+    require(countYamlGroupsNamed(config, service_policy::MainProxyGroupName) == 1,
+            "script mode must emit exactly one ipinfo.cv target proxy group");
+    requireYamlProxies(findYamlGroup(config, service_policy::MainProxyGroupName), {"REJECT"},
+                       "script mode must keep an empty ipinfo.cv target group fail closed");
 
     const std::string script = config["script"]["code"].as<std::string>();
     const size_t lowercase_host = script.find("host = md[\"host\"].lower()");
-    const size_t root_match = script.find("host == \"todesk.com\"");
-    const size_t subdomain_match = script.find("host.endswith(\".todesk.com\")");
+    const size_t todest_root_match = script.find("host == \"todesk.com\"");
+    const size_t todest_subdomain_match = script.find("host.endswith(\".todesk.com\")");
     const size_t direct_return = script.find("return \"DIRECT\"");
+    const size_t ipinfo_root_match = script.find("host == \"ipinfo.cv\"");
+    const size_t ipinfo_subdomain_match = script.find("host.endswith(\".ipinfo.cv\")");
+    const size_t unsafe_suffix_match = script.find("host.endswith(\"ipinfo.cv\")");
+    const size_t proxy_return = script.find(std::string("return \"") + service_policy::MainProxyGroupName + "\"");
     const size_t provider_lookup = script.find("ctx.rule_providers[");
-    require(lowercase_host != std::string::npos && root_match != std::string::npos &&
-            subdomain_match != std::string::npos,
+    require(lowercase_host != std::string::npos && todest_root_match != std::string::npos &&
+            todest_subdomain_match != std::string::npos,
             "script mode must match ToDesk root and subdomains case-insensitively");
     require(direct_return != std::string::npos && provider_lookup != std::string::npos &&
-            lowercase_host < root_match && root_match < direct_return &&
-            subdomain_match < direct_return && direct_return < provider_lookup,
+            lowercase_host < todest_root_match && todest_root_match < direct_return &&
+            todest_subdomain_match < direct_return && direct_return < provider_lookup,
             "script mode must return DIRECT for ToDesk before consulting any rule provider");
+    require(ipinfo_root_match != std::string::npos && ipinfo_subdomain_match != std::string::npos &&
+            unsafe_suffix_match == std::string::npos,
+            "script mode must match only the ipinfo.cv root and dot-delimited subdomains");
+    require(proxy_return != std::string::npos && direct_return < ipinfo_root_match &&
+            ipinfo_root_match < proxy_return && ipinfo_subdomain_match < proxy_return &&
+            proxy_return < provider_lookup,
+            "script mode must route ipinfo.cv through the main proxy group before consulting providers");
 }
 }
 
@@ -583,7 +825,8 @@ int main()
 {
     try
     {
-        testToDeskRuleNormalizationIsIdempotent();
+        testManagedDomainRuleNormalizationIsIdempotent();
+        testMainProxyGroupNormalization();
         testExternalConfigCannotRemoveManagedPolicies();
         testPreferredPolicyGroupsAndFallbacks();
         testInvalidPreferredGroupsDoNotCreateDanglingReferences();

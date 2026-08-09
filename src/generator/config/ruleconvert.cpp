@@ -192,7 +192,7 @@ static bool targetsManagedService(const std::string &rule)
     return fields.size() > 2 && service_policy::isManagedName(std::string(fields[2]));
 }
 
-static bool matchesToDeskDomainRule(const std::string &rule)
+static bool matchesDomainRule(const std::string &rule, const std::string &domain)
 {
     string_view_array fields;
     split(fields, rule, ',');
@@ -200,14 +200,18 @@ static bool matchesToDeskDomainRule(const std::string &rule)
         return false;
     const std::string type = toUpper(trim(std::string(fields[0])));
     const std::string value = toLower(trim(std::string(fields[1])));
-    return (type == "DOMAIN" || type == "DOMAIN-SUFFIX") && value == service_policy::ToDeskDomain;
+    return (type == "DOMAIN" || type == "DOMAIN-SUFFIX") && value == domain;
 }
 
 void prioritizeManagedServiceRules(std::vector<std::string> &rules)
 {
     std::stable_partition(rules.begin(), rules.end(), targetsManagedService);
-    rules.erase(std::remove_if(rules.begin(), rules.end(), matchesToDeskDomainRule), rules.end());
-    rules.insert(rules.begin(), service_policy::ToDeskDirectRule);
+    rules.erase(std::remove_if(rules.begin(), rules.end(), [](const std::string &rule)
+    {
+        return matchesDomainRule(rule, service_policy::ToDeskDomain) ||
+               matchesDomainRule(rule, service_policy::IPInfoDomain);
+    }), rules.end());
+    rules.insert(rules.begin(), {service_policy::ToDeskDirectRule, service_policy::IPInfoProxyRule});
 }
 
 void prioritizeManagedServiceRules(YAML::Node &base_rule, bool new_field_name)

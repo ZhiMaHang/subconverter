@@ -6,6 +6,7 @@
 #include <cctype>
 
 #include "config/regmatch.h"
+#include "config/service_policy.h"
 #include "generator/config/subexport.h"
 #include "generator/template/templates.h"
 #include "handler/settings.h"
@@ -810,7 +811,10 @@ std::string proxyToClash(std::vector<Proxy> &nodes, const std::string &base_conf
         return "";
     }
 
-    proxyToClash(nodes, yamlnode, extra_proxy_group, clashR, ext);
+    ProxyGroupConfigs effective_proxy_groups = extra_proxy_group;
+    if(!ext.nodelist)
+        service_policy::ensureMainProxyGroup(effective_proxy_groups);
+    proxyToClash(nodes, yamlnode, effective_proxy_groups, clashR, ext);
 
     if(ext.nodelist)
         return YAML::Dump(yamlnode);
@@ -823,6 +827,13 @@ std::string proxyToClash(std::vector<Proxy> &nodes, const std::string &base_conf
     */
     if(!ext.enable_rule_generator)
     {
+        // A base configuration may still be in script mode. No generated
+        // script exists on this path, so force rule mode before installing
+        // the mandatory inline rules.
+        yamlnode.remove("mode");
+        yamlnode.remove("Mode");
+        yamlnode[ext.clash_new_field_name ? "mode" : "Mode"] =
+            ext.clash_new_field_name ? "rule" : "Rule";
         if(ext.clash_doh)
             enforceClashDoHRule(yamlnode, ext.clash_new_field_name);
         prioritizeManagedServiceRules(yamlnode, ext.clash_new_field_name);
@@ -831,13 +842,11 @@ std::string proxyToClash(std::vector<Proxy> &nodes, const std::string &base_conf
 
     if(!ext.managed_config_prefix.empty() || ext.clash_script)
     {
-        if(yamlnode["mode"].IsDefined())
-        {
-            if(ext.clash_new_field_name)
-                yamlnode["mode"] = ext.clash_script ? "script" : "rule";
-            else
-                yamlnode["mode"] = ext.clash_script ? "Script" : "Rule";
-        }
+        yamlnode.remove("mode");
+        yamlnode.remove("Mode");
+        yamlnode[ext.clash_new_field_name ? "mode" : "Mode"] = ext.clash_new_field_name
+            ? (ext.clash_script ? "script" : "rule")
+            : (ext.clash_script ? "Script" : "Rule");
 
         renderClashScript(yamlnode, ruleset_content_array, ext.managed_config_prefix, ext.clash_script, ext.overwrite_original_rules, ext.clash_classical_ruleset);
         if(ext.clash_doh)

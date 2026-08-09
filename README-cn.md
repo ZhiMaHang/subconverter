@@ -215,6 +215,8 @@ https://airport-b.example/subscription
 
 完整 Clash/ClashR 配置会把 `DOMAIN-SUFFIX,todesk.com,DIRECT` 规范化为第一条规则，确保 ToDesk 主域及其子域始终直连；该规则同样覆盖展开规则、rule-provider、关闭规则生成和 Clash script 模式。
 
+`DOMAIN-SUFFIX,ipinfo.cv,🚀 节点选择` 会紧随其后，确保 `ipinfo.cv` 主域及子域进入主代理选择组。若外部配置没有可用的 `🚀 节点选择`，会自动创建一个匹配代理节点且空时使用 `REJECT` 的安全组。
+
 换行在请求 URL 中会编码为 `%0A`。生成配置的默认自动更新间隔是 24 小时（`config_update_interval = 86400`）；每次客户端更新时都会重新拉取机场订阅（受 `cache_subscription` 缓存时间限制）。原有 `|` 方式仍然兼容：
 
 ```txt
