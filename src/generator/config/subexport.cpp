@@ -284,6 +284,11 @@ void proxyToClash(std::vector<Proxy> &nodes, YAML::Node &yamlnode, const ProxyGr
         singleproxy["name"] = x.Remark;
         singleproxy["server"] = trimOf(trimOf(x.Hostname, '['), ']');
         singleproxy["port"] = x.Port;
+        if(dialect == ClashDialect::Stash)
+        {
+            singleproxy["benchmark-url"] = "http://www.apple.com/";
+            singleproxy["benchmark-timeout"] = 8;
+        }
 
         switch(x.Type)
         {

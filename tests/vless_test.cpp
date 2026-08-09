@@ -17,11 +17,29 @@
 namespace
 {
 constexpr const char *TEST_UUID = "11111111-1111-4111-8111-111111111111";
+constexpr const char *STASH_BENCHMARK_URL = "http://www.apple.com/";
+constexpr int STASH_BENCHMARK_TIMEOUT = 8;
 
 void require(bool condition, const std::string &message)
 {
     if(!condition)
         throw std::runtime_error(message);
+}
+
+void requireStashBenchmarkDefaults(const YAML::Node &proxy, const std::string &context)
+{
+    require(proxy["benchmark-url"].IsScalar() &&
+                proxy["benchmark-url"].as<std::string>() == STASH_BENCHMARK_URL,
+            context + " benchmark URL is missing or invalid");
+    require(proxy["benchmark-timeout"].IsScalar() &&
+                proxy["benchmark-timeout"].as<int>() == STASH_BENCHMARK_TIMEOUT,
+            context + " benchmark timeout is missing or invalid");
+}
+
+void requireNoStashBenchmarkDefaults(const YAML::Node &proxy, const std::string &context)
+{
+    require(!proxy["benchmark-url"].IsDefined() && !proxy["benchmark-timeout"].IsDefined(),
+            context + " unexpectedly emitted Stash benchmark defaults");
 }
 
 Proxy parseLink(const std::string &link)
@@ -85,6 +103,7 @@ void testRealityIPv6()
     require(proxy["reality-opts"]["short-id"].as<std::string>().empty(), "Clash empty Reality short ID was dropped");
     require(proxy["servername"].as<std::string>() == "cdn.example.com", "Clash VLESS servername missing");
     require(!proxy["sni"].IsDefined(), "Clash VLESS unexpectedly emitted the Stash SNI field");
+    requireNoStashBenchmarkDefaults(proxy, "Clash VLESS");
 
     const YAML::Node stash = exportClash(node, ClashDialect::Stash);
     const YAML::Node stash_proxy = stash["proxies"][0];
@@ -103,6 +122,7 @@ void testRealityIPv6()
     require(stash_proxy["reality-opts"]["public-key"].as<std::string>() == "FAKE_PUBLIC_KEY", "Stash Reality key missing");
     require(stash_proxy["reality-opts"]["short-id"].as<std::string>().empty(), "Stash empty Reality short ID was dropped");
     require(!stash_proxy["spider-x"].IsDefined() && !stash_proxy["spiderX"].IsDefined(), "Stash emitted unsupported Reality spiderX");
+    requireStashBenchmarkDefaults(stash_proxy, "Stash VLESS");
 
     std::vector<Proxy> nodes{node};
     extra_settings raw_ext;
@@ -132,7 +152,9 @@ void testStashFullConfiguration()
         "@stash.example.com:443?encryption=none&security=reality&type=tcp"
         "&sni=cover.example.com&fp=chrome&flow=xtls-rprx-vision"
         "&pbk=STASH_FAKE_KEY&sid=1234#Stash%20Reality");
-    std::vector<Proxy> nodes{std::move(node)};
+    Proxy http_node;
+    httpConstruct(http_node, "Stash", "Stash HTTP", "http.example.com", "8080", "", "", false);
+    std::vector<Proxy> nodes{std::move(node), std::move(http_node)};
     std::vector<RulesetContent> rulesets;
     ProxyGroupConfigs groups;
     extra_settings ext;
@@ -173,7 +195,7 @@ void testStashFullConfiguration()
     const YAML::Node config = YAML::Load(proxyToClash(
         nodes, YAML::Dump(rendered_base), rulesets, groups, false, ext, ClashDialect::Stash));
 
-    require(config["proxies"].IsSequence() && config["proxies"].size() == 1,
+    require(config["proxies"].IsSequence() && config["proxies"].size() == 2,
             "Stash full configuration is missing proxies");
     require(config["proxy-groups"].IsSequence() && config["proxy-groups"].size() > 0,
             "Stash full configuration is missing proxy groups");
@@ -218,6 +240,26 @@ void testStashFullConfiguration()
             "Stash full configuration lost VLESS client fingerprint");
     require(!config["proxies"][0]["fingerprint"].IsDefined(),
             "Stash full configuration emitted the legacy fingerprint field");
+    for(size_t index = 0; index < config["proxies"].size(); index++)
+        requireStashBenchmarkDefaults(
+            config["proxies"][index], "Stash full configuration proxy " + std::to_string(index));
+}
+
+void testClashRDoesNotEmitStashBenchmarkDefaults()
+{
+    Proxy node;
+    httpConstruct(node, "ClashR", "ClashR HTTP", "clashr.example.com", "8080", "", "", false);
+    std::vector<Proxy> nodes{std::move(node)};
+    ProxyGroupConfigs groups;
+    extra_settings ext;
+    ext.nodelist = true;
+    ext.clash_new_field_name = true;
+    YAML::Node output;
+    proxyToClash(nodes, output, groups, true, ext, ClashDialect::Clash);
+
+    require(output["proxies"].IsSequence() && output["proxies"].size() == 1,
+            "ClashR HTTP proxy is missing");
+    requireNoStashBenchmarkDefaults(output["proxies"][0], "ClashR HTTP");
 }
 
 void testWebSocketTLS()
@@ -502,6 +544,7 @@ int main()
     {
         testRealityIPv6();
         testStashFullConfiguration();
+        testClashRDoesNotEmitStashBenchmarkDefaults();
         testWebSocketTLS();
         testCanonicalHttpAndClashInput();
         testSubscriptionAndValidation();
