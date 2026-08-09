@@ -80,6 +80,7 @@ void testRealityIPv6()
     require(proxy["server"].as<std::string>() == "2001:db8::10", "Clash IPv6 server is invalid");
     require(proxy["tls"].as<bool>(), "Clash Reality node must enable TLS");
     require(proxy["client-fingerprint"].as<std::string>() == "chrome", "Clash client fingerprint is wrong");
+    require(!proxy["fingerprint"].IsDefined(), "Clash VLESS emitted the Stash legacy fingerprint field");
     require(proxy["reality-opts"]["public-key"].as<std::string>() == "FAKE_PUBLIC_KEY", "Clash Reality key missing");
     require(proxy["reality-opts"]["short-id"].as<std::string>().empty(), "Clash empty Reality short ID was dropped");
     require(proxy["servername"].as<std::string>() == "cdn.example.com", "Clash VLESS servername missing");
@@ -87,8 +88,8 @@ void testRealityIPv6()
 
     const YAML::Node stash = exportClash(node, ClashDialect::Stash);
     const YAML::Node stash_proxy = stash["proxies"][0];
-    require(stash_proxy["sni"].as<std::string>() == "cdn.example.com", "Stash VLESS SNI missing");
-    require(!stash_proxy["servername"].IsDefined(), "Stash VLESS emitted the Mihomo servername field");
+    require(stash_proxy["servername"].as<std::string>() == "cdn.example.com", "Stash VLESS servername missing");
+    require(!stash_proxy["sni"].IsDefined(), "Stash VLESS emitted the unsupported SNI field");
     require(stash_proxy["type"].as<std::string>() == "vless", "Stash VLESS type missing");
     require(stash_proxy["server"].as<std::string>() == "2001:db8::10", "Stash VLESS server missing");
     require(stash_proxy["port"].as<uint16_t>() == 443, "Stash VLESS port missing");
@@ -98,6 +99,7 @@ void testRealityIPv6()
     require(stash_proxy["tls"].as<bool>(), "Stash Reality node must enable TLS");
     require(stash_proxy["flow"].as<std::string>() == "xtls-rprx-vision", "Stash VLESS flow missing");
     require(stash_proxy["client-fingerprint"].as<std::string>() == "chrome", "Stash client fingerprint is wrong");
+    require(!stash_proxy["fingerprint"].IsDefined(), "Stash VLESS emitted the legacy fingerprint field");
     require(stash_proxy["reality-opts"]["public-key"].as<std::string>() == "FAKE_PUBLIC_KEY", "Stash Reality key missing");
     require(stash_proxy["reality-opts"]["short-id"].as<std::string>().empty(), "Stash empty Reality short ID was dropped");
     require(!stash_proxy["spider-x"].IsDefined() && !stash_proxy["spiderX"].IsDefined(), "Stash emitted unsupported Reality spiderX");
@@ -161,10 +163,14 @@ void testStashFullConfiguration()
             "Stash full configuration is missing proxy groups");
     require(config["rules"].IsSequence() && config["rules"].size() > 0,
             "Stash full configuration is missing rules");
-    require(config["proxies"][0]["sni"].as<std::string>() == "cover.example.com",
-            "Stash full configuration lost VLESS SNI");
-    require(!config["proxies"][0]["servername"].IsDefined(),
-            "Stash full configuration emitted the Mihomo servername field");
+    require(config["proxies"][0]["servername"].as<std::string>() == "cover.example.com",
+            "Stash full configuration lost VLESS servername");
+    require(!config["proxies"][0]["sni"].IsDefined(),
+            "Stash full configuration emitted the unsupported SNI field");
+    require(config["proxies"][0]["client-fingerprint"].as<std::string>() == "chrome",
+            "Stash full configuration lost VLESS client fingerprint");
+    require(!config["proxies"][0]["fingerprint"].IsDefined(),
+            "Stash full configuration emitted the legacy fingerprint field");
 }
 
 void testWebSocketTLS()

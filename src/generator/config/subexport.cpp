@@ -390,7 +390,7 @@ void proxyToClash(std::vector<Proxy> &nodes, YAML::Node &yamlnode, const ProxyGr
             if(!x.PacketEncoding.empty())
                 singleproxy["packet-encoding"] = x.PacketEncoding;
             if(!x.ServerName.empty())
-                singleproxy[dialect == ClashDialect::Stash ? "sni" : "servername"] = x.ServerName;
+                singleproxy["servername"] = x.ServerName;
             if(!x.ClientFingerprint.empty())
                 singleproxy["client-fingerprint"] = x.ClientFingerprint;
             if(!x.Alpn.empty())
