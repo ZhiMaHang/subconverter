@@ -1,4 +1,6 @@
+#include <fstream>
 #include <iostream>
+#include <iterator>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -7,6 +9,7 @@
 #include <yaml-cpp/yaml.h>
 
 #include "generator/config/subexport.h"
+#include "generator/template/templates.h"
 #include "parser/subparser.h"
 #include "utils/base64/base64.h"
 #include "utils/string.h"
@@ -28,7 +31,7 @@ Proxy parseLink(const std::string &link)
     return node;
 }
 
-YAML::Node exportClash(Proxy node)
+YAML::Node exportClash(Proxy node, ClashDialect dialect = ClashDialect::Clash)
 {
     std::vector<Proxy> nodes{std::move(node)};
     ProxyGroupConfigs groups;
@@ -36,7 +39,7 @@ YAML::Node exportClash(Proxy node)
     ext.nodelist = true;
     ext.clash_new_field_name = true;
     YAML::Node output;
-    proxyToClash(nodes, output, groups, false, ext);
+    proxyToClash(nodes, output, groups, false, ext, dialect);
     return output;
 }
 
@@ -79,6 +82,25 @@ void testRealityIPv6()
     require(proxy["client-fingerprint"].as<std::string>() == "chrome", "Clash client fingerprint is wrong");
     require(proxy["reality-opts"]["public-key"].as<std::string>() == "FAKE_PUBLIC_KEY", "Clash Reality key missing");
     require(proxy["reality-opts"]["short-id"].as<std::string>().empty(), "Clash empty Reality short ID was dropped");
+    require(proxy["servername"].as<std::string>() == "cdn.example.com", "Clash VLESS servername missing");
+    require(!proxy["sni"].IsDefined(), "Clash VLESS unexpectedly emitted the Stash SNI field");
+
+    const YAML::Node stash = exportClash(node, ClashDialect::Stash);
+    const YAML::Node stash_proxy = stash["proxies"][0];
+    require(stash_proxy["sni"].as<std::string>() == "cdn.example.com", "Stash VLESS SNI missing");
+    require(!stash_proxy["servername"].IsDefined(), "Stash VLESS emitted the Mihomo servername field");
+    require(stash_proxy["type"].as<std::string>() == "vless", "Stash VLESS type missing");
+    require(stash_proxy["server"].as<std::string>() == "2001:db8::10", "Stash VLESS server missing");
+    require(stash_proxy["port"].as<uint16_t>() == 443, "Stash VLESS port missing");
+    require(stash_proxy["uuid"].as<std::string>() == TEST_UUID, "Stash VLESS UUID missing");
+    require(stash_proxy["encryption"].as<std::string>() == "none", "Stash VLESS encryption missing");
+    require(stash_proxy["network"].as<std::string>() == "tcp", "Stash VLESS TCP network missing");
+    require(stash_proxy["tls"].as<bool>(), "Stash Reality node must enable TLS");
+    require(stash_proxy["flow"].as<std::string>() == "xtls-rprx-vision", "Stash VLESS flow missing");
+    require(stash_proxy["client-fingerprint"].as<std::string>() == "chrome", "Stash client fingerprint is wrong");
+    require(stash_proxy["reality-opts"]["public-key"].as<std::string>() == "FAKE_PUBLIC_KEY", "Stash Reality key missing");
+    require(stash_proxy["reality-opts"]["short-id"].as<std::string>().empty(), "Stash empty Reality short ID was dropped");
+    require(!stash_proxy["spider-x"].IsDefined() && !stash_proxy["spiderX"].IsDefined(), "Stash emitted unsupported Reality spiderX");
 
     std::vector<Proxy> nodes{node};
     extra_settings raw_ext;
@@ -99,6 +121,50 @@ void testRealityIPv6()
     require(std::string(outbound["tls"]["server_name"].GetString()) == "cdn.example.com", "sing-box SNI is wrong");
     require(std::string(outbound["tls"]["utls"]["fingerprint"].GetString()) == "chrome", "sing-box uTLS fingerprint is wrong");
     require(std::string(outbound["tls"]["reality"]["public_key"].GetString()) == "FAKE_PUBLIC_KEY", "sing-box Reality key missing");
+}
+
+void testStashFullConfiguration()
+{
+    Proxy node = parseLink(
+        std::string("vless://") + TEST_UUID +
+        "@stash.example.com:443?encryption=none&security=reality&type=tcp"
+        "&sni=cover.example.com&fp=chrome&flow=xtls-rprx-vision"
+        "&pbk=STASH_FAKE_KEY&sid=1234#Stash%20Reality");
+    std::vector<Proxy> nodes{std::move(node)};
+    std::vector<RulesetContent> rulesets;
+    ProxyGroupConfigs groups;
+    extra_settings ext;
+    ext.clash_new_field_name = true;
+    ext.enable_rule_generator = false;
+
+    template_args template_vars;
+    template_vars.request_params["target"] = "stash";
+    template_vars.local_vars["clash.new_field_name"] = "true";
+    std::ifstream base_file(std::string(SUBCONVERTER_SOURCE_DIR) + "/base/base/all_base.tpl");
+    require(base_file.good(), "Bundled Stash base template could not be opened");
+    const std::string base_template{
+        std::istreambuf_iterator<char>(base_file), std::istreambuf_iterator<char>()};
+    std::string base;
+    require(render_template(
+                base_template,
+                template_vars, base, std::string(SUBCONVERTER_SOURCE_DIR) + "/base") == 0,
+            "Bundled Stash base template did not render");
+    YAML::Node rendered_base = YAML::Load(base);
+    rendered_base["rules"].push_back("MATCH,DIRECT");
+
+    const YAML::Node config = YAML::Load(proxyToClash(
+        nodes, YAML::Dump(rendered_base), rulesets, groups, false, ext, ClashDialect::Stash));
+
+    require(config["proxies"].IsSequence() && config["proxies"].size() == 1,
+            "Stash full configuration is missing proxies");
+    require(config["proxy-groups"].IsSequence() && config["proxy-groups"].size() > 0,
+            "Stash full configuration is missing proxy groups");
+    require(config["rules"].IsSequence() && config["rules"].size() > 0,
+            "Stash full configuration is missing rules");
+    require(config["proxies"][0]["sni"].as<std::string>() == "cover.example.com",
+            "Stash full configuration lost VLESS SNI");
+    require(!config["proxies"][0]["servername"].IsDefined(),
+            "Stash full configuration emitted the Mihomo servername field");
 }
 
 void testWebSocketTLS()
@@ -382,6 +448,7 @@ int main()
     try
     {
         testRealityIPv6();
+        testStashFullConfiguration();
         testWebSocketTLS();
         testCanonicalHttpAndClashInput();
         testSubscriptionAndValidation();

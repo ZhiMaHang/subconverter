@@ -68,6 +68,7 @@ const std::vector<UAProfile> UAMatchList = {
     {"ClashX Pro","","","clash",true},
     {"ClashX","\\/([0-9.]+)","0.13","clash",true},
     {"Clash","","","clash",true},
+    {"Stash","","","stash",true},
     {"Kitsunebi","","","v2ray"},
     {"Loon","","","loon"},
     {"Pharos","","","mixed"},
@@ -320,7 +321,7 @@ std::string subconverter(RESPONSE_CALLBACK_ARGS)
     case "ss"_hash: case "ssd"_hash: case "ssr"_hash: case "sssub"_hash: case "v2ray"_hash: case "vless"_hash: case "trojan"_hash: case "mixed"_hash:
         lSimpleSubscription = true;
         break;
-    case "clash"_hash: case "clashr"_hash: case "surge"_hash: case "quan"_hash: case "quanx"_hash: case "loon"_hash: case "surfboard"_hash: case "mellow"_hash: case "singbox"_hash:
+    case "clash"_hash: case "clashr"_hash: case "stash"_hash: case "surge"_hash: case "quan"_hash: case "quanx"_hash: case "loon"_hash: case "surfboard"_hash: case "mellow"_hash: case "singbox"_hash:
         break;
     default:
         *status_code = 400;
@@ -412,7 +413,8 @@ std::string subconverter(RESPONSE_CALLBACK_ARGS)
     /// check other flags
     ext.authorized = authorized;
     ext.append_proxy_type = argAppendType.get(global.appendType);
-    if((argTarget == "clash" || argTarget == "clashr") && argGenClashScript.is_undef())
+    const bool lClashCompatibleTarget = argTarget == "clash" || argTarget == "clashr" || argTarget == "stash";
+    if(lClashCompatibleTarget && argGenClashScript.is_undef())
         argExpandRulesets.define(true);
 
     ext.clash_proxies_style = global.clashProxiesStyle;
@@ -430,6 +432,8 @@ std::string subconverter(RESPONSE_CALLBACK_ARGS)
         ext.sort_script = global.sortScript;
     ext.filter_deprecated = argFilterDeprecated.get(global.filterDeprecated);
     ext.clash_new_field_name = argClashNewField.get(global.clashUseNewField);
+    if(argTarget == "stash")
+        ext.clash_new_field_name = true;
     ext.clash_script = argGenClashScript.get();
     ext.clash_doh = argClashDoH == "true" || argClashDoH == "1";
     ext.clash_classical_ruleset = argGenClassicalRuleProvider.get();
@@ -510,7 +514,7 @@ std::string subconverter(RESPONSE_CALLBACK_ARGS)
             }
         }
     }
-    if(!ext.nodelist && !lSimpleSubscription && (argTarget == "clash" || argTarget == "clashr"))
+    if(!ext.nodelist && !lSimpleSubscription && lClashCompatibleTarget)
     {
         service_policy::ensureMainProxyGroup(lCustomProxyGroups);
         if(ext.enable_rule_generator)
@@ -759,7 +763,7 @@ std::string subconverter(RESPONSE_CALLBACK_ARGS)
     //do pre-process now
     preprocessNodes(nodes, ext);
 
-    if(!ext.nodelist && (argTarget == "clash" || argTarget == "clashr"))
+    if(!ext.nodelist && lClashCompatibleTarget)
         source_group::enforce(urls.size(), nodes, lCustomProxyGroups);
 
     /*
@@ -786,14 +790,16 @@ std::string subconverter(RESPONSE_CALLBACK_ARGS)
     proxy = parseProxy(global.proxyConfig);
     switch(hash_(argTarget))
     {
-    case "clash"_hash: case "clashr"_hash:
-        writeLog(0, argTarget == "clashr" ? "Generate target: ClashR" : "Generate target: Clash", LOG_LEVEL_INFO);
+    case "clash"_hash: case "clashr"_hash: case "stash"_hash:
+    {
+        const ClashDialect clashDialect = argTarget == "stash" ? ClashDialect::Stash : ClashDialect::Clash;
+        writeLog(0, argTarget == "clashr" ? "Generate target: ClashR" : (argTarget == "stash" ? "Generate target: Stash" : "Generate target: Clash"), LOG_LEVEL_INFO);
         tpl_args.local_vars["clash.new_field_name"] = ext.clash_new_field_name ? "true" : "false";
         response.headers["profile-update-interval"] = std::to_string(interval / 3600);
         if(ext.nodelist)
         {
             YAML::Node yamlnode;
-            proxyToClash(nodes, yamlnode, dummy_group, argTarget == "clashr", ext);
+            proxyToClash(nodes, yamlnode, dummy_group, argTarget == "clashr", ext, clashDialect);
             output_content = YAML::Dump(yamlnode);
         }
         else
@@ -803,12 +809,13 @@ std::string subconverter(RESPONSE_CALLBACK_ARGS)
                 *status_code = 400;
                 return base_content;
             }
-            output_content = proxyToClash(nodes, base_content, lRulesetContent, lCustomProxyGroups, argTarget == "clashr", ext);
+            output_content = proxyToClash(nodes, base_content, lRulesetContent, lCustomProxyGroups, argTarget == "clashr", ext, clashDialect);
         }
 
         if(argUpload)
             uploadGist(argTarget, argUploadPath, output_content, false);
         break;
+    }
     case "surge"_hash:
 
         writeLog(0, "Generate target: Surge " + std::to_string(intSurgeVer), LOG_LEVEL_INFO);

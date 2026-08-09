@@ -233,7 +233,7 @@ void groupGenerate(const std::string &rule, std::vector<Proxy> &nodelist, string
     }
 }
 
-void proxyToClash(std::vector<Proxy> &nodes, YAML::Node &yamlnode, const ProxyGroupConfigs &extra_proxy_group, bool clashR, extra_settings &ext)
+void proxyToClash(std::vector<Proxy> &nodes, YAML::Node &yamlnode, const ProxyGroupConfigs &extra_proxy_group, bool clashR, extra_settings &ext, ClashDialect dialect)
 {
     YAML::Node proxies, original_groups;
     std::vector<Proxy> nodelist;
@@ -390,7 +390,7 @@ void proxyToClash(std::vector<Proxy> &nodes, YAML::Node &yamlnode, const ProxyGr
             if(!x.PacketEncoding.empty())
                 singleproxy["packet-encoding"] = x.PacketEncoding;
             if(!x.ServerName.empty())
-                singleproxy["servername"] = x.ServerName;
+                singleproxy[dialect == ClashDialect::Stash ? "sni" : "servername"] = x.ServerName;
             if(!x.ClientFingerprint.empty())
                 singleproxy["client-fingerprint"] = x.ClientFingerprint;
             if(!x.Alpn.empty())
@@ -797,7 +797,7 @@ void proxyToClash(std::vector<Proxy> &nodes, YAML::Node &yamlnode, const ProxyGr
     }
 }
 
-std::string proxyToClash(std::vector<Proxy> &nodes, const std::string &base_conf, std::vector<RulesetContent> &ruleset_content_array, const ProxyGroupConfigs &extra_proxy_group, bool clashR, extra_settings &ext)
+std::string proxyToClash(std::vector<Proxy> &nodes, const std::string &base_conf, std::vector<RulesetContent> &ruleset_content_array, const ProxyGroupConfigs &extra_proxy_group, bool clashR, extra_settings &ext, ClashDialect dialect)
 {
     YAML::Node yamlnode;
 
@@ -814,7 +814,7 @@ std::string proxyToClash(std::vector<Proxy> &nodes, const std::string &base_conf
     ProxyGroupConfigs effective_proxy_groups = extra_proxy_group;
     if(!ext.nodelist)
         service_policy::ensureMainProxyGroup(effective_proxy_groups);
-    proxyToClash(nodes, yamlnode, effective_proxy_groups, clashR, ext);
+    proxyToClash(nodes, yamlnode, effective_proxy_groups, clashR, ext, dialect);
 
     if(ext.nodelist)
         return YAML::Dump(yamlnode);
