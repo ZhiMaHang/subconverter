@@ -137,15 +137,31 @@ void testStashFullConfiguration()
     ProxyGroupConfigs groups;
     extra_settings ext;
     ext.clash_new_field_name = true;
-    ext.enable_rule_generator = false;
+    ext.clash_script = true;
 
     template_args template_vars;
     template_vars.request_params["target"] = "stash";
+    template_vars.request_params["clash.doh"] = "true";
     template_vars.local_vars["clash.new_field_name"] = "true";
     std::ifstream base_file(std::string(SUBCONVERTER_SOURCE_DIR) + "/base/base/all_base.tpl");
     require(base_file.good(), "Bundled Stash base template could not be opened");
-    const std::string base_template{
+    std::string base_template{
         std::istreambuf_iterator<char>(base_file), std::istreambuf_iterator<char>()};
+    const auto inline_template = [&base_template](const std::string &name, const std::string &path)
+    {
+        std::ifstream include_file(path);
+        require(include_file.good(), "Bundled template include could not be opened: " + path);
+        const std::string include_content{
+            std::istreambuf_iterator<char>(include_file), std::istreambuf_iterator<char>()};
+        base_template = replaceAllDistinct(
+            base_template, "{% include \"" + name + "\" %}", include_content);
+    };
+    inline_template(
+        "snippets/stash_doh.yaml",
+        std::string(SUBCONVERTER_SOURCE_DIR) + "/base/snippets/stash_doh.yaml");
+    inline_template(
+        "snippets/clash_doh.yaml",
+        std::string(SUBCONVERTER_SOURCE_DIR) + "/base/snippets/clash_doh.yaml");
     std::string base;
     require(render_template(
                 base_template,
@@ -163,6 +179,37 @@ void testStashFullConfiguration()
             "Stash full configuration is missing proxy groups");
     require(config["rules"].IsSequence() && config["rules"].size() > 0,
             "Stash full configuration is missing rules");
+    require(config["mode"].as<std::string>() == "rule",
+            "Stash full configuration must default to rule mode");
+    require(!config["Mode"].IsDefined(),
+            "Stash full configuration emitted the legacy Mode field");
+    require(!config["script"].IsDefined(),
+            "Stash full configuration emitted unsupported Clash script mode");
+    const YAML::Node dns = config["dns"];
+    require(dns.IsMap(), "Stash DoH configuration is missing");
+    require(dns["default-nameserver"].size() == 2 &&
+                dns["default-nameserver"][0].as<std::string>() == "223.5.5.5" &&
+                dns["default-nameserver"][1].as<std::string>() == "1.12.12.12",
+            "Stash DoH bootstrap resolvers are wrong");
+    require(dns["nameserver"].size() == 2 &&
+                dns["nameserver"][0].as<std::string>() == "https://1.1.1.1/dns-query" &&
+                dns["nameserver"][1].as<std::string>() == "https://8.8.8.8/dns-query",
+            "Stash default DoH resolvers are wrong");
+    require(dns["follow-rule"].as<bool>() &&
+                dns["nameserver-policy"]["geosite:cn"].as<std::string>() == "https://223.5.5.5/dns-query" &&
+                dns["nameserver-policy"]["geosite:private"].as<std::string>() == "system",
+            "Stash DoH routing policies are wrong");
+    for(const char *unsupported : {
+            "cache-algorithm", "direct-nameserver", "direct-nameserver-follow-policy",
+            "enable", "enhanced-mode", "fake-ip-filter-mode", "fake-ip-range",
+            "fallback", "ipv6", "listen", "prefer-h3", "proxy-server-nameserver",
+            "respect-rules", "use-hosts", "use-system-hosts"})
+        require(!dns[unsupported].IsDefined(),
+                std::string("Stash DoH emitted unsupported field: ") + unsupported);
+    require(dns["fake-ip-filter"].IsSequence() && dns["fake-ip-filter"].size() == 105 &&
+                dns["fake-ip-filter"][0].as<std::string>() == "*.lan" &&
+                dns["fake-ip-filter"][104].as<std::string>() == "*.finalfantasyxiv.com",
+            "Stash fake IP filter list is incomplete");
     require(config["proxies"][0]["servername"].as<std::string>() == "cover.example.com",
             "Stash full configuration lost VLESS servername");
     require(!config["proxies"][0]["sni"].IsDefined(),

@@ -8,7 +8,11 @@ mode: Rule
 log-level: {{ default(global.clash.log_level, "info") }}
 external-controller: {{ default(global.clash.external_controller, "127.0.0.1:9090") }}
 {% if bool(default(request.clash.doh, "false")) %}
+{% if request.target == "stash" %}
+{% include "snippets/stash_doh.yaml" %}
+{% else %}
 {% include "snippets/clash_doh.yaml" %}
+{% endif %}
 {% else %}
 {% if default(request.clash.dns, "") == "1" %}
 dns:

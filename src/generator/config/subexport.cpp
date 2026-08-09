@@ -811,6 +811,21 @@ std::string proxyToClash(std::vector<Proxy> &nodes, const std::string &base_conf
         return "";
     }
 
+    const bool stash = dialect == ClashDialect::Stash;
+    const bool clash_script = ext.clash_script && !stash;
+    const auto enforce_stash_rule_mode = [&yamlnode, stash]()
+    {
+        if(!stash)
+            return;
+        // Stash only accepts the lowercase rule/global/direct mode values.
+        // A generated subscription must remain in rule mode so its rules are
+        // actually evaluated instead of falling back to the client's default.
+        yamlnode.remove("mode");
+        yamlnode.remove("Mode");
+        yamlnode["mode"] = "rule";
+    };
+    enforce_stash_rule_mode();
+
     ProxyGroupConfigs effective_proxy_groups = extra_proxy_group;
     if(!ext.nodelist)
         service_policy::ensureMainProxyGroup(effective_proxy_groups);
@@ -837,22 +852,24 @@ std::string proxyToClash(std::vector<Proxy> &nodes, const std::string &base_conf
         if(ext.clash_doh)
             enforceClashDoHRule(yamlnode, ext.clash_new_field_name);
         prioritizeManagedServiceRules(yamlnode, ext.clash_new_field_name);
+        enforce_stash_rule_mode();
         return YAML::Dump(yamlnode);
     }
 
-    if(!ext.managed_config_prefix.empty() || ext.clash_script)
+    if(!ext.managed_config_prefix.empty() || clash_script)
     {
         yamlnode.remove("mode");
         yamlnode.remove("Mode");
         yamlnode[ext.clash_new_field_name ? "mode" : "Mode"] = ext.clash_new_field_name
-            ? (ext.clash_script ? "script" : "rule")
-            : (ext.clash_script ? "Script" : "Rule");
+            ? (clash_script ? "script" : "rule")
+            : (clash_script ? "Script" : "Rule");
 
-        renderClashScript(yamlnode, ruleset_content_array, ext.managed_config_prefix, ext.clash_script, ext.overwrite_original_rules, ext.clash_classical_ruleset);
+        renderClashScript(yamlnode, ruleset_content_array, ext.managed_config_prefix, clash_script, ext.overwrite_original_rules, ext.clash_classical_ruleset);
         if(ext.clash_doh)
             enforceClashDoHRule(yamlnode, ext.clash_new_field_name);
-        if(!ext.clash_script)
+        if(!clash_script)
             prioritizeManagedServiceRules(yamlnode, ext.clash_new_field_name);
+        enforce_stash_rule_mode();
         return YAML::Dump(yamlnode);
     }
 
