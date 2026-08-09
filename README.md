@@ -75,6 +75,8 @@ http://127.0.0.1:25500/sub?target=%TARGET%&url=%URL%&config=%CONFIG%
 
 To merge subscriptions and single-node links, put one source on each line before URL encoding. Newlines become `%0A` in the request. Generated configurations use a 24-hour update interval by default (`config_update_interval = 86400`), and each client refresh fetches the airport subscriptions again subject to `cache_subscription`. The existing `|` separator and repeated `url` parameters are also supported.
 
+Full Clash/ClashR configurations normalize `DOMAIN-SUFFIX,todesk.com,DIRECT` as the first routing rule, so the ToDesk root domain and subdomains always connect directly. This applies to expanded rules, rule providers, disabled rule generation, and Clash script mode.
+
 Example:
 
 ```txt

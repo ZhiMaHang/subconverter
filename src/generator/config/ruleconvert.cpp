@@ -164,7 +164,13 @@ void enforceClashDoHRule(std::vector<std::string> &rules)
 
 void enforceClashDoHRule(YAML::Node &base_rule, bool new_field_name)
 {
-    const std::string field_name = new_field_name ? "rules" : "Rule";
+    std::string field_name = new_field_name ? "rules" : "Rule";
+    if(!base_rule[field_name].IsSequence())
+    {
+        const std::string alternate_field_name = new_field_name ? "Rule" : "rules";
+        if(base_rule[alternate_field_name].IsSequence())
+            field_name = alternate_field_name;
+    }
     string_array rules;
     if(base_rule[field_name].IsSequence())
     {
@@ -186,9 +192,22 @@ static bool targetsManagedService(const std::string &rule)
     return fields.size() > 2 && service_policy::isManagedName(std::string(fields[2]));
 }
 
+static bool matchesToDeskDomainRule(const std::string &rule)
+{
+    string_view_array fields;
+    split(fields, rule, ',');
+    if(fields.size() < 2)
+        return false;
+    const std::string type = toUpper(trim(std::string(fields[0])));
+    const std::string value = toLower(trim(std::string(fields[1])));
+    return (type == "DOMAIN" || type == "DOMAIN-SUFFIX") && value == service_policy::ToDeskDomain;
+}
+
 void prioritizeManagedServiceRules(std::vector<std::string> &rules)
 {
     std::stable_partition(rules.begin(), rules.end(), targetsManagedService);
+    rules.erase(std::remove_if(rules.begin(), rules.end(), matchesToDeskDomainRule), rules.end());
+    rules.insert(rules.begin(), service_policy::ToDeskDirectRule);
 }
 
 void prioritizeManagedServiceRules(YAML::Node &base_rule, bool new_field_name)
@@ -200,12 +219,13 @@ void prioritizeManagedServiceRules(YAML::Node &base_rule, bool new_field_name)
         if(base_rule[alternate_field_name].IsSequence())
             field_name = alternate_field_name;
     }
-    if(!base_rule[field_name].IsSequence())
-        return;
 
     string_array rules;
-    for(const YAML::Node &rule : base_rule[field_name])
-        rules.emplace_back(safe_as<std::string>(rule));
+    if(base_rule[field_name].IsSequence())
+    {
+        for(const YAML::Node &rule : base_rule[field_name])
+            rules.emplace_back(safe_as<std::string>(rule));
+    }
     prioritizeManagedServiceRules(rules);
 
     YAML::Node prioritized_rules(YAML::NodeType::Sequence);

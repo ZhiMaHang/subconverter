@@ -16,6 +16,8 @@ namespace service_policy
 inline constexpr const char *BinanceName = "Binance";
 inline constexpr const char *OpenAIName = "OpenAI";
 inline constexpr const char *AnthropicName = "Anthropic";
+inline constexpr const char *ToDeskDomain = "todesk.com";
+inline constexpr const char *ToDeskDirectRule = "DOMAIN-SUFFIX,todesk.com,DIRECT";
 
 inline constexpr const char *TaiwanGroupName = "🇨🇳 台湾节点";
 inline constexpr const char *AIPlatformGroupName = "💬 Ai平台";

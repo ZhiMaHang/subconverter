@@ -84,9 +84,59 @@ std::vector<Proxy> makeNodes()
 std::vector<std::string> readRules(const YAML::Node &config)
 {
     std::vector<std::string> rules;
-    for(const YAML::Node &rule : config["rules"])
-        rules.emplace_back(rule.as<std::string>());
+    for(const char *field_name : {"rules", "Rule"})
+    {
+        for(const auto &entry : config)
+        {
+            if(entry.first.as<std::string>() != field_name || !entry.second.IsSequence())
+                continue;
+            for(const YAML::Node &rule : entry.second)
+                rules.emplace_back(rule.as<std::string>());
+            return rules;
+        }
+    }
     return rules;
+}
+
+bool hasYamlKey(const YAML::Node &config, const std::string &key)
+{
+    for(const auto &entry : config)
+    {
+        if(entry.first.as<std::string>() == key)
+            return true;
+    }
+    return false;
+}
+
+bool isToDeskDomainRule(const std::string &rule)
+{
+    string_view_array fields;
+    split(fields, rule, ',');
+    if(fields.size() < 2)
+        return false;
+    const std::string type = toUpper(trim(std::string(fields[0])));
+    const std::string value = toLower(trim(std::string(fields[1])));
+    return (type == "DOMAIN" || type == "DOMAIN-SUFFIX") && value == service_policy::ToDeskDomain;
+}
+
+size_t countToDeskDomainRules(const std::vector<std::string> &rules)
+{
+    return static_cast<size_t>(std::count_if(rules.cbegin(), rules.cend(), isToDeskDomainRule));
+}
+
+size_t ruleIndex(const std::vector<std::string> &rules, const std::string &expected)
+{
+    const auto rule = std::find(rules.cbegin(), rules.cend(), expected);
+    return rule == rules.cend() ? std::string::npos :
+           static_cast<size_t>(std::distance(rules.cbegin(), rule));
+}
+
+void requireCanonicalToDeskRule(const std::vector<std::string> &rules, const std::string &context)
+{
+    require(!rules.empty() && rules.front() == service_policy::ToDeskDirectRule,
+            context + " must put the canonical ToDesk DIRECT rule first");
+    require(countToDeskDomainRules(rules) == 1,
+            context + " must remove conflicting and duplicate ToDesk domain rules");
 }
 
 const YAML::Node findYamlGroup(const YAML::Node &config, const std::string &name)
@@ -108,6 +158,29 @@ void requireYamlProxies(const YAML::Node &group, const std::vector<std::string> 
         require(group["proxies"][index].as<std::string>() == expected[index],
                 message + " (wrong proxy at index " + std::to_string(index) + ")");
     }
+}
+
+void testToDeskRuleNormalizationIsIdempotent()
+{
+    std::vector<std::string> rules{
+        "DOMAIN,todesk.com,External",
+        "DOMAIN-SUFFIX,openai.example,OpenAI",
+        "DOMAIN-SUFFIX, ToDesk.COM ,REJECT",
+        service_policy::ToDeskDirectRule,
+        "DOMAIN-SUFFIX,example.com,External",
+        "MATCH,Fallback"
+    };
+
+    prioritizeManagedServiceRules(rules);
+    prioritizeManagedServiceRules(rules);
+
+    requireCanonicalToDeskRule(rules, "repeated managed-rule finalization");
+    require(rules == std::vector<std::string>({
+                service_policy::ToDeskDirectRule,
+                "DOMAIN-SUFFIX,openai.example,OpenAI",
+                "DOMAIN-SUFFIX,example.com,External",
+                "MATCH,Fallback"
+            }), "ToDesk normalization changed managed priority or unrelated rule order");
 }
 
 void testExternalConfigCannotRemoveManagedPolicies()
@@ -291,9 +364,14 @@ void testProviderModeEmitsAllManagedRuleSets()
     ext.clash_doh = true;
 
     const YAML::Node config = YAML::Load(proxyToClash(
-        nodes, "mode: rule\nrules:\n  - GEOIP,CN,OpenAI\n  - MATCH,Base\n",
+        nodes, "mode: rule\nrules:\n"
+               "  - DOMAIN,todesk.com,External\n"
+               "  - DOMAIN-SUFFIX, ToDesk.COM ,REJECT\n"
+               "  - GEOIP,CN,OpenAI\n"
+               "  - MATCH,Base\n",
         ruleset_content, groups, false, ext));
     const std::vector<std::string> rules = readRules(config);
+    requireCanonicalToDeskRule(rules, "provider mode");
 
     struct ProviderExpectation
     {
@@ -305,7 +383,9 @@ void testProviderModeEmitsAllManagedRuleSets()
         {service_policy::OpenAIName, service_policy::OpenAIRulesetUrl},
         {service_policy::AnthropicName, service_policy::AnthropicRulesetUrl}
     }};
-    require(rules.size() >= providers.size() + 1, "provider mode emitted too few rules");
+    require(config["rule-providers"].IsMap() && config["rule-providers"].size() == providers.size(),
+            "provider mode must not create a ToDesk provider for one fixed domain");
+    require(rules.size() >= providers.size() + 2, "provider mode emitted too few rules");
     for(size_t index = 0; index < providers.size(); index++)
     {
         const ProviderExpectation &expected = providers[index];
@@ -317,17 +397,17 @@ void testProviderModeEmitsAllManagedRuleSets()
                 std::string(expected.Name) + " rule provider URL is wrong");
         require(provider["interval"].as<int>() == service_policy::UpdateInterval,
                 std::string(expected.Name) + " provider interval must be 24 hours");
-        require(rules[index] == std::string("RULE-SET,") + expected.Name + "," + expected.Name,
+        require(rules[index + 1] == std::string("RULE-SET,") + expected.Name + "," + expected.Name,
                 "managed provider rules are not in Binance/OpenAI/Anthropic order");
     }
     const auto match = std::find(rules.cbegin(), rules.cend(), "MATCH,Fallback");
-    require(match != rules.cend() && static_cast<size_t>(std::distance(rules.cbegin(), match)) >= providers.size(),
+    require(match != rules.cend() && static_cast<size_t>(std::distance(rules.cbegin(), match)) > providers.size(),
             "managed provider rules must precede MATCH");
     require(std::find(rules.cbegin(), rules.cend(), "MATCH,Base") != rules.cend(),
             "provider mode must retain base rules when overwrite_original_rules is false");
     const auto doh_rule = std::find(rules.cbegin(), rules.cend(), "GEOIP,CN,DIRECT,no-resolve");
     require(doh_rule != rules.cend() &&
-            static_cast<size_t>(std::distance(rules.cbegin(), doh_rule)) >= providers.size(),
+            static_cast<size_t>(std::distance(rules.cbegin(), doh_rule)) > providers.size() && doh_rule < match,
             "managed provider rules must remain ahead of the normalized DoH CN rule");
 
     requireYamlProxies(findYamlGroup(config, service_policy::TaiwanGroupName), {"TW01", "REJECT"},
@@ -398,9 +478,14 @@ void testExpandedModeExpandsAllManagedRules()
     ext.clash_doh = true;
 
     const YAML::Node config = YAML::Load(proxyToClash(
-        nodes, "mode: rule\nrules:\n  - GEOIP,CN,OpenAI\n  - MATCH,Base\n",
+        nodes, "mode: rule\nrules:\n"
+               "  - DOMAIN,todesk.com,External\n"
+               "  - DOMAIN-SUFFIX, ToDesk.COM ,REJECT\n"
+               "  - GEOIP,CN,OpenAI\n"
+               "  - MATCH,Base\n",
         ruleset_content, groups, false, ext));
     const std::vector<std::string> rules = readRules(config);
+    requireCanonicalToDeskRule(rules, "expanded mode");
 
     require(!config["rule-providers"].IsDefined(), "expanded mode must not emit managed rule providers");
     require(std::none_of(rules.cbegin(), rules.cend(), [](const std::string &rule)
@@ -414,8 +499,8 @@ void testExpandedModeExpandsAllManagedRules()
         "IP-ASN,20473,OpenAI",
         "DOMAIN-SUFFIX,anthropic.example,Anthropic"
     };
-    require(rules.size() >= expected.size() + 1, "expanded mode emitted too few rules");
-    require(std::equal(expected.cbegin(), expected.cend(), rules.cbegin()),
+    require(rules.size() >= expected.size() + 2, "expanded mode emitted too few rules");
+    require(std::equal(expected.cbegin(), expected.cend(), rules.cbegin() + 1),
             "expanded rules must preserve Binance/OpenAI/Anthropic order and the OpenAI IP-ASN rule");
     const auto match = std::find(rules.cbegin(), rules.cend(), "MATCH,Fallback");
     require(match != rules.cend() && static_cast<size_t>(std::distance(rules.cbegin(), match)) >= expected.size(),
@@ -426,8 +511,71 @@ void testExpandedModeExpandsAllManagedRules()
             "expanded managed rules must precede retained base MATCH rules");
     const auto doh_rule = std::find(rules.cbegin(), rules.cend(), "GEOIP,CN,DIRECT,no-resolve");
     require(doh_rule != rules.cend() &&
-            static_cast<size_t>(std::distance(rules.cbegin(), doh_rule)) >= expected.size(),
+            static_cast<size_t>(std::distance(rules.cbegin(), doh_rule)) > expected.size() &&
+            doh_rule < base_match && doh_rule < match,
             "expanded managed rules must remain ahead of the normalized DoH CN rule");
+}
+
+void testDisabledRuleGeneratorNormalizesLegacyRulesWithDoh()
+{
+    std::vector<Proxy> nodes;
+    std::vector<RulesetContent> ruleset_content;
+    ProxyGroupConfigs groups;
+    extra_settings ext;
+    ext.clash_new_field_name = true;
+    ext.enable_rule_generator = false;
+    ext.clash_doh = true;
+
+    const YAML::Node config = YAML::Load(proxyToClash(
+        nodes, "Mode: Rule\nRule:\n"
+               "  - DOMAIN,todesk.com,External\n"
+               "  - DOMAIN-SUFFIX, ToDesk.COM ,REJECT\n"
+               "  - GEOIP,CN,External\n"
+               "  - MATCH,Fallback\n",
+        ruleset_content, groups, false, ext));
+    require(hasYamlKey(config, "Rule") && !hasYamlKey(config, "rules"),
+            "disabled rule generation must preserve the legacy Rule field");
+
+    const std::vector<std::string> rules = readRules(config);
+    requireCanonicalToDeskRule(rules, "disabled rule generation with legacy Rule");
+    const size_t doh_index = ruleIndex(rules, "GEOIP,CN,DIRECT,no-resolve");
+    const size_t match_index = ruleIndex(rules, "MATCH,Fallback");
+    require(doh_index == 1 && match_index != std::string::npos && doh_index < match_index,
+            "ToDesk must precede the one normalized DoH rule and terminal MATCH in legacy mode");
+}
+
+void testScriptModeDirectsToDeskBeforeProviders()
+{
+    ProxyGroupConfigs groups;
+    RulesetConfigs rulesets;
+    service_policy::enforce(groups, rulesets);
+
+    std::vector<Proxy> nodes;
+    std::vector<RulesetContent> ruleset_content = makeRulesetContent();
+    extra_settings ext;
+    ext.clash_new_field_name = true;
+    ext.enable_rule_generator = true;
+    ext.overwrite_original_rules = true;
+    ext.clash_script = true;
+
+    const YAML::Node config = YAML::Load(proxyToClash(
+        nodes, "mode: rule\n", ruleset_content, groups, false, ext));
+    require(config["mode"].as<std::string>() == "script", "script mode was not enabled");
+    require(config["script"]["code"].IsScalar(), "script mode did not emit executable routing code");
+
+    const std::string script = config["script"]["code"].as<std::string>();
+    const size_t lowercase_host = script.find("host = md[\"host\"].lower()");
+    const size_t root_match = script.find("host == \"todesk.com\"");
+    const size_t subdomain_match = script.find("host.endswith(\".todesk.com\")");
+    const size_t direct_return = script.find("return \"DIRECT\"");
+    const size_t provider_lookup = script.find("ctx.rule_providers[");
+    require(lowercase_host != std::string::npos && root_match != std::string::npos &&
+            subdomain_match != std::string::npos,
+            "script mode must match ToDesk root and subdomains case-insensitively");
+    require(direct_return != std::string::npos && provider_lookup != std::string::npos &&
+            lowercase_host < root_match && root_match < direct_return &&
+            subdomain_match < direct_return && direct_return < provider_lookup,
+            "script mode must return DIRECT for ToDesk before consulting any rule provider");
 }
 }
 
@@ -435,12 +583,15 @@ int main()
 {
     try
     {
+        testToDeskRuleNormalizationIsIdempotent();
         testExternalConfigCannotRemoveManagedPolicies();
         testPreferredPolicyGroupsAndFallbacks();
         testInvalidPreferredGroupsDoNotCreateDanglingReferences();
         testProviderModeEmitsAllManagedRuleSets();
         testEmptyPreferredPolicyGroupsRejectInsteadOfUsingDirect();
         testExpandedModeExpandsAllManagedRules();
+        testDisabledRuleGeneratorNormalizesLegacyRulesWithDoh();
+        testScriptModeDirectsToDeskBeforeProviders();
         std::cout << "Managed service policy tests passed" << std::endl;
         return 0;
     }

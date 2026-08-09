@@ -259,7 +259,9 @@ int render_template(const std::string &content, const template_args &vars, std::
 }
 
 const std::string clash_script_template = R"(def main(ctx, md):
-  host = md["host"]
+  host = md["host"].lower()
+  if host == "todesk.com" or host.endswith(".todesk.com"):
+    return "DIRECT"
 {% for rule in rules %}
 {% if rule.set == "true" %}{% include "group_template" %}{% endif %}
 {% endfor %}

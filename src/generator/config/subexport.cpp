@@ -825,6 +825,7 @@ std::string proxyToClash(std::vector<Proxy> &nodes, const std::string &base_conf
     {
         if(ext.clash_doh)
             enforceClashDoHRule(yamlnode, ext.clash_new_field_name);
+        prioritizeManagedServiceRules(yamlnode, ext.clash_new_field_name);
         return YAML::Dump(yamlnode);
     }
 
