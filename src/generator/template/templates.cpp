@@ -262,6 +262,8 @@ const std::string clash_script_template = R"(def main(ctx, md):
   host = md["host"].lower()
   if host == "todesk.com" or host.endswith(".todesk.com"):
     return "DIRECT"
+  if host == "doubao.com" or host.endswith(".doubao.com"):
+    return "DIRECT"
   if host == "ipinfo.cv" or host.endswith(".ipinfo.cv"):
     return "🚀 节点选择"
 {% for rule in rules %}

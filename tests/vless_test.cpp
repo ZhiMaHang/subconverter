@@ -201,6 +201,11 @@ void testStashFullConfiguration()
             "Stash full configuration is missing proxy groups");
     require(config["rules"].IsSequence() && config["rules"].size() > 0,
             "Stash full configuration is missing rules");
+    require(config["rules"].size() >= 3 &&
+                config["rules"][0].as<std::string>() == "DOMAIN-SUFFIX,todesk.com,DIRECT" &&
+                config["rules"][1].as<std::string>() == "DOMAIN-SUFFIX,doubao.com,DIRECT" &&
+                config["rules"][2].as<std::string>() == "DOMAIN-SUFFIX,ipinfo.cv,🚀 节点选择",
+            "Stash full configuration must put the managed direct and proxy rules first");
     require(config["mode"].as<std::string>() == "rule",
             "Stash full configuration must default to rule mode");
     require(!config["Mode"].IsDefined(),
