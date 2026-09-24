@@ -209,9 +209,11 @@ void prioritizeManagedServiceRules(std::vector<std::string> &rules)
     rules.erase(std::remove_if(rules.begin(), rules.end(), [](const std::string &rule)
     {
         return matchesDomainRule(rule, service_policy::ToDeskDomain) ||
+               matchesDomainRule(rule, service_policy::DoubaoDomain) ||
                matchesDomainRule(rule, service_policy::IPInfoDomain);
     }), rules.end());
-    rules.insert(rules.begin(), {service_policy::ToDeskDirectRule, service_policy::IPInfoProxyRule});
+    rules.insert(rules.begin(), {service_policy::ToDeskDirectRule, service_policy::DoubaoDirectRule,
+                                 service_policy::IPInfoProxyRule});
 }
 
 void prioritizeManagedServiceRules(YAML::Node &base_rule, bool new_field_name)

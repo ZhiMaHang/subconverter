@@ -213,9 +213,9 @@ https://airport-b.example/subscription
 
 生成完整的 Clash/ClashR 配置时，每个输入项都会按顺序生成一个独立的 `来源 N` 选择组。单节点链接只包含该节点，机场订阅则包含该订阅解析出的全部节点；其他可选代理组都会加入这些来源组。任一输入下载、解析失败或没有产生节点时，整个请求失败，不返回缺少来源的部分配置。
 
-完整 Clash/ClashR 配置会把 `DOMAIN-SUFFIX,todesk.com,DIRECT` 规范化为第一条规则，确保 ToDesk 主域及其子域始终直连；该规则同样覆盖展开规则、rule-provider、关闭规则生成和 Clash script 模式。
+完整 Clash/ClashR 配置会把 `DOMAIN-SUFFIX,todesk.com,DIRECT` 和 `DOMAIN-SUFFIX,doubao.com,DIRECT` 规范化为前两条规则，确保 ToDesk、豆包的主域及其子域始终直连；这两条规则同样覆盖展开规则、rule-provider、关闭规则生成和 Clash script 模式。
 
-`DOMAIN-SUFFIX,ipinfo.cv,🚀 节点选择` 会紧随其后，确保 `ipinfo.cv` 主域及子域进入主代理选择组。若外部配置没有可用的 `🚀 节点选择`，会自动创建一个匹配代理节点且空时使用 `REJECT` 的安全组。
+`DOMAIN-SUFFIX,ipinfo.cv,🚀 节点选择` 会紧随前两条规则，确保 `ipinfo.cv` 主域及子域进入主代理选择组。若外部配置没有可用的 `🚀 节点选择`，会自动创建一个匹配代理节点且空时使用 `REJECT` 的安全组。
 
 换行在请求 URL 中会编码为 `%0A`。生成配置的默认自动更新间隔是 24 小时（`config_update_interval = 86400`）；每次客户端更新时都会重新拉取机场订阅（受 `cache_subscription` 缓存时间限制）。原有 `|` 方式仍然兼容：
 

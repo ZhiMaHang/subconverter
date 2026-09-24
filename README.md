@@ -75,9 +75,9 @@ http://127.0.0.1:25500/sub?target=%TARGET%&url=%URL%&config=%CONFIG%
 
 To merge subscriptions and single-node links, put one source on each line before URL encoding. Newlines become `%0A` in the request. Generated configurations use a 24-hour update interval by default (`config_update_interval = 86400`), and each client refresh fetches the airport subscriptions again subject to `cache_subscription`. The existing `|` separator and repeated `url` parameters are also supported.
 
-Full Clash/ClashR configurations normalize `DOMAIN-SUFFIX,todesk.com,DIRECT` as the first routing rule, so the ToDesk root domain and subdomains always connect directly. This applies to expanded rules, rule providers, disabled rule generation, and Clash script mode.
+Full Clash/ClashR configurations normalize `DOMAIN-SUFFIX,todesk.com,DIRECT` and `DOMAIN-SUFFIX,doubao.com,DIRECT` as the first two routing rules, so both root domains and their subdomains always connect directly. This applies to expanded rules, rule providers, disabled rule generation, and Clash script mode.
 
-`DOMAIN-SUFFIX,ipinfo.cv,🚀 节点选择` follows it, routing the `ipinfo.cv` root domain and subdomains through the main proxy selection group. If an external configuration lacks a usable `🚀 节点选择` group, a proxy-matching fallback group that rejects when empty is created automatically.
+`DOMAIN-SUFFIX,ipinfo.cv,🚀 节点选择` follows them, routing the `ipinfo.cv` root domain and subdomains through the main proxy selection group. If an external configuration lacks a usable `🚀 节点选择` group, a proxy-matching fallback group that rejects when empty is created automatically.
 
 Example:
 
