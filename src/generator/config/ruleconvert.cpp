@@ -210,10 +210,11 @@ void prioritizeManagedServiceRules(std::vector<std::string> &rules)
     {
         return matchesDomainRule(rule, service_policy::ToDeskDomain) ||
                matchesDomainRule(rule, service_policy::DoubaoDomain) ||
+               matchesDomainRule(rule, service_policy::DeepSeekDomain) ||
                matchesDomainRule(rule, service_policy::IPInfoDomain);
     }), rules.end());
     rules.insert(rules.begin(), {service_policy::ToDeskDirectRule, service_policy::DoubaoDirectRule,
-                                 service_policy::IPInfoProxyRule});
+                                 service_policy::DeepSeekDirectRule, service_policy::IPInfoProxyRule});
 }
 
 void prioritizeManagedServiceRules(YAML::Node &base_rule, bool new_field_name)

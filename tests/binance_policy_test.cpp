@@ -135,6 +135,14 @@ size_t countDoubaoDomainRules(const std::vector<std::string> &rules)
     }));
 }
 
+size_t countDeepSeekDomainRules(const std::vector<std::string> &rules)
+{
+    return static_cast<size_t>(std::count_if(rules.cbegin(), rules.cend(), [](const std::string &rule)
+    {
+        return isDomainRuleFor(rule, service_policy::DeepSeekDomain);
+    }));
+}
+
 size_t countIPInfoDomainRules(const std::vector<std::string> &rules)
 {
     return static_cast<size_t>(std::count_if(rules.cbegin(), rules.cend(), [](const std::string &rule)
@@ -165,8 +173,12 @@ void requireCanonicalManagedDomainRules(const std::vector<std::string> &rules, c
             context + " must put the canonical doubao.com DIRECT rule second");
     require(countDoubaoDomainRules(rules) == 1,
             context + " must remove conflicting and duplicate doubao.com domain rules");
-    require(rules.size() > 2 && rules[2] == service_policy::IPInfoProxyRule,
-            context + " must put the canonical ipinfo.cv proxy rule third");
+    require(rules.size() > 2 && rules[2] == service_policy::DeepSeekDirectRule,
+            context + " must put the canonical deepseek.com DIRECT rule third");
+    require(countDeepSeekDomainRules(rules) == 1,
+            context + " must remove conflicting and duplicate deepseek.com domain rules");
+    require(rules.size() > 3 && rules[3] == service_policy::IPInfoProxyRule,
+            context + " must put the canonical ipinfo.cv proxy rule fourth");
     require(countIPInfoDomainRules(rules) == 1,
             context + " must remove conflicting and duplicate ipinfo.cv domain rules");
 }
@@ -231,15 +243,20 @@ void testManagedDomainRuleNormalizationIsIdempotent()
         "DOMAIN-SUFFIX, IPINFO.CV ,DIRECT",
         "DOMAIN,todesk.com,External",
         "DOMAIN,doubao.com,External",
+        "DOMAIN,deepseek.com,External",
         "DOMAIN-SUFFIX,openai.example,OpenAI",
         "DOMAIN,ipinfo.cv,REJECT",
         "DOMAIN-SUFFIX, ToDesk.COM ,REJECT",
         "DOMAIN-SUFFIX, DOUBAO.COM ,REJECT",
+        "DOMAIN-SUFFIX, DEEPSEEK.COM ,REJECT",
         service_policy::IPInfoProxyRule,
         service_policy::ToDeskDirectRule,
         service_policy::DoubaoDirectRule,
+        service_policy::DeepSeekDirectRule,
         "DOMAIN-SUFFIX,notdoubao.com,External",
         "DOMAIN-SUFFIX,doubao.com.example,External",
+        "DOMAIN-SUFFIX,notdeepseek.com,External",
+        "DOMAIN-SUFFIX,deepseek.com.example,External",
         "DOMAIN-SUFFIX,notipinfo.cv,External",
         "DOMAIN-SUFFIX,ipinfo.cv.example,External",
         "DOMAIN-SUFFIX,example.com,External",
@@ -253,10 +270,13 @@ void testManagedDomainRuleNormalizationIsIdempotent()
     require(rules == std::vector<std::string>({
                 service_policy::ToDeskDirectRule,
                 service_policy::DoubaoDirectRule,
+                service_policy::DeepSeekDirectRule,
                 service_policy::IPInfoProxyRule,
                 "DOMAIN-SUFFIX,openai.example,OpenAI",
                 "DOMAIN-SUFFIX,notdoubao.com,External",
                 "DOMAIN-SUFFIX,doubao.com.example,External",
+                "DOMAIN-SUFFIX,notdeepseek.com,External",
+                "DOMAIN-SUFFIX,deepseek.com.example,External",
                 "DOMAIN-SUFFIX,notipinfo.cv,External",
                 "DOMAIN-SUFFIX,ipinfo.cv.example,External",
                 "DOMAIN-SUFFIX,example.com,External",
@@ -592,6 +612,8 @@ void testProviderModeEmitsAllManagedRuleSets()
                "  - DOMAIN-SUFFIX, ToDesk.COM ,REJECT\n"
                "  - DOMAIN,doubao.com,External\n"
                "  - DOMAIN-SUFFIX, DOUBAO.COM ,REJECT\n"
+               "  - DOMAIN,deepseek.com,External\n"
+               "  - DOMAIN-SUFFIX, DEEPSEEK.COM ,REJECT\n"
                "  - DOMAIN,ipinfo.cv,DIRECT\n"
                "  - DOMAIN-SUFFIX, IPINFO.CV ,REJECT\n"
                "  - DOMAIN-SUFFIX,notipinfo.cv,External\n"
@@ -615,7 +637,7 @@ void testProviderModeEmitsAllManagedRuleSets()
     }};
     require(config["rule-providers"].IsMap() && config["rule-providers"].size() == providers.size(),
             "provider mode must not create providers for fixed managed domains");
-    require(rules.size() >= providers.size() + 4, "provider mode emitted too few rules");
+    require(rules.size() >= providers.size() + 5, "provider mode emitted too few rules");
     for(size_t index = 0; index < providers.size(); index++)
     {
         const ProviderExpectation &expected = providers[index];
@@ -627,7 +649,7 @@ void testProviderModeEmitsAllManagedRuleSets()
                 std::string(expected.Name) + " rule provider URL is wrong");
         require(provider["interval"].as<int>() == service_policy::UpdateInterval,
                 std::string(expected.Name) + " provider interval must be 24 hours");
-        require(rules[index + 3] == std::string("RULE-SET,") + expected.Name + "," + expected.Name,
+        require(rules[index + 4] == std::string("RULE-SET,") + expected.Name + "," + expected.Name,
                 "managed provider rules are not in Binance/OpenAI/Anthropic order");
     }
     const auto match = std::find(rules.cbegin(), rules.cend(), "MATCH,Fallback");
@@ -637,7 +659,7 @@ void testProviderModeEmitsAllManagedRuleSets()
             "provider mode must retain base rules when overwrite_original_rules is false");
     const auto doh_rule = std::find(rules.cbegin(), rules.cend(), "GEOIP,CN,DIRECT,no-resolve");
     require(doh_rule != rules.cend() &&
-            static_cast<size_t>(std::distance(rules.cbegin(), doh_rule)) > providers.size() + 2 && doh_rule < match,
+            static_cast<size_t>(std::distance(rules.cbegin(), doh_rule)) > providers.size() + 3 && doh_rule < match,
             "managed provider rules must remain ahead of the normalized DoH CN rule");
 
     requireYamlProxies(findYamlGroup(config, service_policy::TaiwanGroupName), {"TW01", "REJECT"},
@@ -715,6 +737,8 @@ void testExpandedModeExpandsAllManagedRules()
                "  - DOMAIN-SUFFIX, ToDesk.COM ,REJECT\n"
                "  - DOMAIN,doubao.com,External\n"
                "  - DOMAIN-SUFFIX, DOUBAO.COM ,REJECT\n"
+               "  - DOMAIN,deepseek.com,External\n"
+               "  - DOMAIN-SUFFIX, DEEPSEEK.COM ,REJECT\n"
                "  - DOMAIN,ipinfo.cv,DIRECT\n"
                "  - DOMAIN-SUFFIX, IPINFO.CV ,REJECT\n"
                "  - DOMAIN-SUFFIX,notipinfo.cv,External\n"
@@ -740,8 +764,8 @@ void testExpandedModeExpandsAllManagedRules()
         "IP-ASN,20473,OpenAI",
         "DOMAIN-SUFFIX,anthropic.example,Anthropic"
     };
-    require(rules.size() >= expected.size() + 3, "expanded mode emitted too few rules");
-    require(std::equal(expected.cbegin(), expected.cend(), rules.cbegin() + 3),
+    require(rules.size() >= expected.size() + 4, "expanded mode emitted too few rules");
+    require(std::equal(expected.cbegin(), expected.cend(), rules.cbegin() + 4),
             "expanded rules must preserve Binance/OpenAI/Anthropic order and the OpenAI IP-ASN rule");
     const auto match = std::find(rules.cbegin(), rules.cend(), "MATCH,Fallback");
     require(match != rules.cend() && static_cast<size_t>(std::distance(rules.cbegin(), match)) >= expected.size(),
@@ -752,7 +776,7 @@ void testExpandedModeExpandsAllManagedRules()
             "expanded managed rules must precede retained base MATCH rules");
     const auto doh_rule = std::find(rules.cbegin(), rules.cend(), "GEOIP,CN,DIRECT,no-resolve");
     require(doh_rule != rules.cend() &&
-            static_cast<size_t>(std::distance(rules.cbegin(), doh_rule)) > expected.size() + 2 &&
+            static_cast<size_t>(std::distance(rules.cbegin(), doh_rule)) > expected.size() + 3 &&
             doh_rule < base_match && doh_rule < match,
             "expanded managed rules must remain ahead of the normalized DoH CN rule");
 }
@@ -774,6 +798,8 @@ void testDisabledRuleGeneratorNormalizesLegacyRulesWithDoh()
                "  - DOMAIN-SUFFIX, ToDesk.COM ,REJECT\n"
                "  - DOMAIN,doubao.com,External\n"
                "  - DOMAIN-SUFFIX, DOUBAO.COM ,REJECT\n"
+               "  - DOMAIN,deepseek.com,External\n"
+               "  - DOMAIN-SUFFIX, DEEPSEEK.COM ,REJECT\n"
                "  - DOMAIN,ipinfo.cv,DIRECT\n"
                "  - DOMAIN-SUFFIX, IPINFO.CV ,REJECT\n"
                "  - DOMAIN-SUFFIX,notipinfo.cv,External\n"
@@ -793,7 +819,7 @@ void testDisabledRuleGeneratorNormalizesLegacyRulesWithDoh()
                        "legacy no-generator mode must keep an empty ipinfo.cv target group fail closed");
     const size_t doh_index = ruleIndex(rules, "GEOIP,CN,DIRECT,no-resolve");
     const size_t match_index = ruleIndex(rules, "MATCH,Fallback");
-    require(doh_index > 2 && match_index != std::string::npos && doh_index < match_index,
+    require(doh_index > 3 && match_index != std::string::npos && doh_index < match_index,
             "managed domains must precede the one normalized DoH rule and terminal MATCH in legacy mode");
 }
 
@@ -829,6 +855,10 @@ void testScriptModeDirectsManagedDomainsBeforeProviders()
     const size_t doubao_subdomain_match = script.find("host.endswith(\".doubao.com\")");
     const size_t unsafe_doubao_suffix_match = script.find("host.endswith(\"doubao.com\")");
     const size_t doubao_direct_return = script.find("return \"DIRECT\"", doubao_root_match);
+    const size_t deepseek_root_match = script.find("host == \"deepseek.com\"");
+    const size_t deepseek_subdomain_match = script.find("host.endswith(\".deepseek.com\")");
+    const size_t unsafe_deepseek_suffix_match = script.find("host.endswith(\"deepseek.com\")");
+    const size_t deepseek_direct_return = script.find("return \"DIRECT\"", deepseek_root_match);
     const size_t ipinfo_root_match = script.find("host == \"ipinfo.cv\"");
     const size_t ipinfo_subdomain_match = script.find("host.endswith(\".ipinfo.cv\")");
     const size_t unsafe_suffix_match = script.find("host.endswith(\"ipinfo.cv\")");
@@ -846,10 +876,15 @@ void testScriptModeDirectsManagedDomainsBeforeProviders()
             direct_return < doubao_root_match && doubao_root_match < doubao_direct_return &&
             doubao_subdomain_match < doubao_direct_return && doubao_direct_return < provider_lookup,
             "script mode must route only doubao.com and its subdomains DIRECT before providers");
+    require(deepseek_root_match != std::string::npos && deepseek_subdomain_match != std::string::npos &&
+            unsafe_deepseek_suffix_match == std::string::npos &&
+            doubao_direct_return < deepseek_root_match && deepseek_root_match < deepseek_direct_return &&
+            deepseek_subdomain_match < deepseek_direct_return && deepseek_direct_return < provider_lookup,
+            "script mode must route only deepseek.com and its subdomains DIRECT before providers");
     require(ipinfo_root_match != std::string::npos && ipinfo_subdomain_match != std::string::npos &&
             unsafe_suffix_match == std::string::npos,
             "script mode must match only the ipinfo.cv root and dot-delimited subdomains");
-    require(proxy_return != std::string::npos && doubao_direct_return < ipinfo_root_match &&
+    require(proxy_return != std::string::npos && deepseek_direct_return < ipinfo_root_match &&
             ipinfo_root_match < proxy_return && ipinfo_subdomain_match < proxy_return &&
             proxy_return < provider_lookup,
             "script mode must route ipinfo.cv through the main proxy group before consulting providers");
