@@ -65,7 +65,10 @@ std::vector<RulesetContent> makeRulesetContent()
          RULESET_CLASH_CLASSICAL,
          readyFuture("payload:\n  - DOMAIN-SUFFIX,openai.example\n  - DOMAIN-SUFFIX,ipinfo.cv\n"
                      "  - DOMAIN-SUFFIX,nga.cn\n  - DOMAIN-SUFFIX,ngabbs.com\n"
-                     "  - DOMAIN-SUFFIX,ngacn.cc\n  - DOMAIN-SUFFIX,nga.178.com\n  - IP-ASN,20473\n"),
+                     "  - DOMAIN-SUFFIX,ngacn.cc\n  - DOMAIN-SUFFIX,nga.178.com\n"
+                     "  - DOMAIN-SUFFIX,aqara.com\n  - DOMAIN-SUFFIX,aqara.cn\n"
+                     "  - DOMAIN-SUFFIX,aqara.com.cn\n  - DOMAIN-SUFFIX,lumiunited.com\n"
+                     "  - DOMAIN,aiot-rpc.ankasa.cn\n  - IP-ASN,20473\n"),
          service_policy::UpdateInterval},
         {service_policy::AnthropicName, service_policy::AnthropicRulesetUrl, service_policy::TypedAnthropicRulesetUrl,
          RULESET_CLASH_CLASSICAL,
@@ -111,7 +114,7 @@ bool hasYamlKey(const YAML::Node &config, const std::string &key)
     return false;
 }
 
-bool isDomainRuleFor(const std::string &rule, const std::string &domain)
+bool isDomainRuleFor(const std::string &rule, const std::string &domain, bool include_suffix = true)
 {
     string_view_array fields;
     split(fields, rule, ',');
@@ -119,7 +122,7 @@ bool isDomainRuleFor(const std::string &rule, const std::string &domain)
         return false;
     const std::string type = toUpper(trim(std::string(fields[0])));
     const std::string value = toLower(trim(std::string(fields[1])));
-    return (type == "DOMAIN" || type == "DOMAIN-SUFFIX") && value == domain;
+    return (type == "DOMAIN" || (include_suffix && type == "DOMAIN-SUFFIX")) && value == domain;
 }
 
 size_t countToDeskDomainRules(const std::vector<std::string> &rules)
@@ -180,26 +183,39 @@ void requireCanonicalManagedDomainRules(const std::vector<std::string> &rules, c
             context + " must put the canonical deepseek.com DIRECT rule third");
     require(countDeepSeekDomainRules(rules) == 1,
             context + " must remove conflicting and duplicate deepseek.com domain rules");
-    const std::array<std::pair<const char *, const char *>, 4> nga_domains{{
+    const std::array<std::pair<const char *, const char *>, 9> managed_direct_domains{{
         {service_policy::NGADomain, service_policy::NGADirectRule},
         {service_policy::NGABbsDomain, service_policy::NGABbsDirectRule},
         {service_policy::NGALegacyDomain, service_policy::NGALegacyDirectRule},
-        {service_policy::NGA178Domain, service_policy::NGA178DirectRule}
+        {service_policy::NGA178Domain, service_policy::NGA178DirectRule},
+        {service_policy::AqaraDomain, service_policy::AqaraDirectRule},
+        {service_policy::AqaraChinaDomain, service_policy::AqaraChinaDirectRule},
+        {service_policy::AqaraChinaSiteDomain, service_policy::AqaraChinaSiteDirectRule},
+        {service_policy::LumiUnitedDomain, service_policy::LumiUnitedDirectRule},
+        {service_policy::AqaraRpcDomain, service_policy::AqaraRpcDirectRule}
     }};
-    for(size_t index = 0; index < nga_domains.size(); index++)
+    for(size_t index = 0; index < managed_direct_domains.size(); index++)
     {
-        const auto &domain = nga_domains[index];
+        const auto &domain = managed_direct_domains[index];
         require(rules.size() > index + 3 && rules[index + 3] == domain.second,
                 context + " must put the canonical " + domain.first + " DIRECT rule before ipinfo.cv");
         require(std::count_if(rules.cbegin(), rules.cend(), [&](const std::string &rule)
         {
-            return isDomainRuleFor(rule, domain.first);
+            return isDomainRuleFor(rule, domain.first,
+                                   std::string(domain.first) != service_policy::AqaraRpcDomain);
         }) == 1, context + " must remove conflicting and duplicate " + domain.first + " domain rules");
     }
-    require(rules.size() > 7 && rules[7] == service_policy::IPInfoProxyRule,
-            context + " must put the canonical ipinfo.cv proxy rule eighth");
+    require(rules.size() > 12 && rules[12] == service_policy::IPInfoProxyRule,
+            context + " must put the canonical ipinfo.cv proxy rule thirteenth");
     require(countIPInfoDomainRules(rules) == 1,
             context + " must remove conflicting and duplicate ipinfo.cv domain rules");
+    const size_t rpc_suffix = ruleIndex(rules, "DOMAIN-SUFFIX, AIOT-RPC.ANKASA.CN ,REJECT");
+    require(rpc_suffix != std::string::npos &&
+            ruleIndex(rules, service_policy::AqaraRpcDirectRule) < rpc_suffix &&
+            rpc_suffix < ruleIndex(rules, "DOMAIN-SUFFIX,ankasa.cn,External"),
+            context + " must preserve the RPC subdomain REJECT suffix before the parent domain rule");
+    require(ruleIndex(rules, "DOMAIN,child.aiot-rpc.ankasa.cn,External") == std::string::npos,
+            context + " must exercise RPC subdomain routing through the retained suffix rule");
 }
 
 const YAML::Node proxyGroupsNode(const YAML::Node &config)
@@ -267,6 +283,11 @@ void testManagedDomainRuleNormalizationIsIdempotent()
         "DOMAIN,ngabbs.com,External",
         "DOMAIN,ngacn.cc,External",
         "DOMAIN,nga.178.com,External",
+        "DOMAIN,aqara.com,External",
+        "DOMAIN,aqara.cn,External",
+        "DOMAIN,aqara.com.cn,External",
+        "DOMAIN,lumiunited.com,External",
+        "DOMAIN,aiot-rpc.ankasa.cn,External",
         "DOMAIN-SUFFIX,openai.example,OpenAI",
         "DOMAIN,ipinfo.cv,REJECT",
         "DOMAIN-SUFFIX, ToDesk.COM ,REJECT",
@@ -276,6 +297,11 @@ void testManagedDomainRuleNormalizationIsIdempotent()
         "DOMAIN-SUFFIX, NGABBS.COM ,REJECT",
         "DOMAIN-SUFFIX, NGACN.CC ,REJECT",
         "DOMAIN-SUFFIX, NGA.178.COM ,REJECT",
+        "DOMAIN-SUFFIX, AQARA.COM ,REJECT",
+        "DOMAIN-SUFFIX, AQARA.CN ,REJECT",
+        "DOMAIN-SUFFIX, AQARA.COM.CN ,REJECT",
+        "DOMAIN-SUFFIX, LUMIUNITED.COM ,REJECT",
+        "DOMAIN-SUFFIX, AIOT-RPC.ANKASA.CN ,REJECT",
         service_policy::IPInfoProxyRule,
         service_policy::ToDeskDirectRule,
         service_policy::DoubaoDirectRule,
@@ -284,6 +310,11 @@ void testManagedDomainRuleNormalizationIsIdempotent()
         service_policy::NGABbsDirectRule,
         service_policy::NGALegacyDirectRule,
         service_policy::NGA178DirectRule,
+        service_policy::AqaraDirectRule,
+        service_policy::AqaraChinaDirectRule,
+        service_policy::AqaraChinaSiteDirectRule,
+        service_policy::LumiUnitedDirectRule,
+        service_policy::AqaraRpcDirectRule,
         "DOMAIN-SUFFIX,notdoubao.com,External",
         "DOMAIN-SUFFIX,doubao.com.example,External",
         "DOMAIN-SUFFIX,notdeepseek.com,External",
@@ -298,6 +329,18 @@ void testManagedDomainRuleNormalizationIsIdempotent()
         "DOMAIN-SUFFIX,nga.178.com.example,External",
         "DOMAIN-SUFFIX,178.com,External",
         "DOMAIN,other.178.com,External",
+        "DOMAIN-SUFFIX,notaqara.com,External",
+        "DOMAIN-SUFFIX,aqara.com.example,External",
+        "DOMAIN-SUFFIX,notaqara.cn,External",
+        "DOMAIN-SUFFIX,aqara.cn.example,External",
+        "DOMAIN-SUFFIX,notaqara.com.cn,External",
+        "DOMAIN-SUFFIX,aqara.com.cn.example,External",
+        "DOMAIN-SUFFIX,notlumiunited.com,External",
+        "DOMAIN-SUFFIX,lumiunited.com.example,External",
+        "DOMAIN-SUFFIX,ankasa.cn,External",
+        "DOMAIN,other.ankasa.cn,External",
+        "DOMAIN,notaiot-rpc.ankasa.cn,External",
+        "DOMAIN,aiot-rpc.ankasa.cn.example,External",
         "DOMAIN-SUFFIX,notipinfo.cv,External",
         "DOMAIN-SUFFIX,ipinfo.cv.example,External",
         "DOMAIN-SUFFIX,example.com,External",
@@ -316,8 +359,14 @@ void testManagedDomainRuleNormalizationIsIdempotent()
                 service_policy::NGABbsDirectRule,
                 service_policy::NGALegacyDirectRule,
                 service_policy::NGA178DirectRule,
+                service_policy::AqaraDirectRule,
+                service_policy::AqaraChinaDirectRule,
+                service_policy::AqaraChinaSiteDirectRule,
+                service_policy::LumiUnitedDirectRule,
+                service_policy::AqaraRpcDirectRule,
                 service_policy::IPInfoProxyRule,
                 "DOMAIN-SUFFIX,openai.example,OpenAI",
+                "DOMAIN-SUFFIX, AIOT-RPC.ANKASA.CN ,REJECT",
                 "DOMAIN-SUFFIX,notdoubao.com,External",
                 "DOMAIN-SUFFIX,doubao.com.example,External",
                 "DOMAIN-SUFFIX,notdeepseek.com,External",
@@ -332,6 +381,18 @@ void testManagedDomainRuleNormalizationIsIdempotent()
                 "DOMAIN-SUFFIX,nga.178.com.example,External",
                 "DOMAIN-SUFFIX,178.com,External",
                 "DOMAIN,other.178.com,External",
+                "DOMAIN-SUFFIX,notaqara.com,External",
+                "DOMAIN-SUFFIX,aqara.com.example,External",
+                "DOMAIN-SUFFIX,notaqara.cn,External",
+                "DOMAIN-SUFFIX,aqara.cn.example,External",
+                "DOMAIN-SUFFIX,notaqara.com.cn,External",
+                "DOMAIN-SUFFIX,aqara.com.cn.example,External",
+                "DOMAIN-SUFFIX,notlumiunited.com,External",
+                "DOMAIN-SUFFIX,lumiunited.com.example,External",
+                "DOMAIN-SUFFIX,ankasa.cn,External",
+                "DOMAIN,other.ankasa.cn,External",
+                "DOMAIN,notaiot-rpc.ankasa.cn,External",
+                "DOMAIN,aiot-rpc.ankasa.cn.example,External",
                 "DOMAIN-SUFFIX,notipinfo.cv,External",
                 "DOMAIN-SUFFIX,ipinfo.cv.example,External",
                 "DOMAIN-SUFFIX,example.com,External",
@@ -677,6 +738,16 @@ void testProviderModeEmitsAllManagedRuleSets()
                "  - DOMAIN-SUFFIX, NGACN.CC ,REJECT\n"
                "  - DOMAIN,nga.178.com,External\n"
                "  - DOMAIN-SUFFIX, NGA.178.COM ,REJECT\n"
+               "  - DOMAIN,aqara.com,External\n"
+               "  - DOMAIN-SUFFIX, AQARA.COM ,REJECT\n"
+               "  - DOMAIN,aqara.cn,External\n"
+               "  - DOMAIN-SUFFIX, AQARA.CN ,REJECT\n"
+               "  - DOMAIN,aqara.com.cn,External\n"
+               "  - DOMAIN-SUFFIX, AQARA.COM.CN ,REJECT\n"
+               "  - DOMAIN,lumiunited.com,External\n"
+               "  - DOMAIN-SUFFIX, LUMIUNITED.COM ,REJECT\n"
+               "  - DOMAIN,aiot-rpc.ankasa.cn,External\n"
+               "  - DOMAIN-SUFFIX, AIOT-RPC.ANKASA.CN ,REJECT\n"
                "  - DOMAIN,ipinfo.cv,DIRECT\n"
                "  - DOMAIN-SUFFIX, IPINFO.CV ,REJECT\n"
                "  - DOMAIN-SUFFIX,notipinfo.cv,External\n"
@@ -690,6 +761,18 @@ void testProviderModeEmitsAllManagedRuleSets()
                "  - DOMAIN-SUFFIX,nga.178.com.example,External\n"
                "  - DOMAIN-SUFFIX,178.com,External\n"
                "  - DOMAIN,other.178.com,External\n"
+               "  - DOMAIN-SUFFIX,notaqara.com,External\n"
+               "  - DOMAIN-SUFFIX,aqara.com.example,External\n"
+               "  - DOMAIN-SUFFIX,notaqara.cn,External\n"
+               "  - DOMAIN-SUFFIX,aqara.cn.example,External\n"
+               "  - DOMAIN-SUFFIX,notaqara.com.cn,External\n"
+               "  - DOMAIN-SUFFIX,aqara.com.cn.example,External\n"
+               "  - DOMAIN-SUFFIX,notlumiunited.com,External\n"
+               "  - DOMAIN-SUFFIX,lumiunited.com.example,External\n"
+               "  - DOMAIN-SUFFIX,ankasa.cn,External\n"
+               "  - DOMAIN,other.ankasa.cn,External\n"
+               "  - DOMAIN,notaiot-rpc.ankasa.cn,External\n"
+               "  - DOMAIN,aiot-rpc.ankasa.cn.example,External\n"
                "  - GEOIP,CN,OpenAI\n"
                "  - MATCH,Base\n",
         ruleset_content, groups, false, ext));
@@ -702,9 +785,16 @@ void testProviderModeEmitsAllManagedRuleSets()
             "DOMAIN-SUFFIX,notngabbs.com,External", "DOMAIN-SUFFIX,ngabbs.com.example,External",
             "DOMAIN-SUFFIX,notngacn.cc,External", "DOMAIN-SUFFIX,ngacn.cc.example,External",
             "DOMAIN-SUFFIX,notnga.178.com,External", "DOMAIN-SUFFIX,nga.178.com.example,External",
-            "DOMAIN-SUFFIX,178.com,External", "DOMAIN,other.178.com,External"})
+            "DOMAIN-SUFFIX,178.com,External", "DOMAIN,other.178.com,External",
+            "DOMAIN-SUFFIX,notaqara.com,External", "DOMAIN-SUFFIX,aqara.com.example,External",
+            "DOMAIN-SUFFIX,notaqara.cn,External", "DOMAIN-SUFFIX,aqara.cn.example,External",
+            "DOMAIN-SUFFIX,notaqara.com.cn,External", "DOMAIN-SUFFIX,aqara.com.cn.example,External",
+            "DOMAIN-SUFFIX,notlumiunited.com,External", "DOMAIN-SUFFIX,lumiunited.com.example,External",
+            "DOMAIN-SUFFIX,ankasa.cn,External", "DOMAIN,other.ankasa.cn,External",
+            "DOMAIN,notaiot-rpc.ankasa.cn,External",
+            "DOMAIN,aiot-rpc.ankasa.cn.example,External"})
         require(std::find(rules.cbegin(), rules.cend(), unrelated) != rules.cend(),
-                std::string("provider mode removed an unrelated NGA-like domain: ") + unrelated);
+                std::string("provider mode removed an unrelated managed-service-like domain: ") + unrelated);
 
     struct ProviderExpectation
     {
@@ -718,7 +808,7 @@ void testProviderModeEmitsAllManagedRuleSets()
     }};
     require(config["rule-providers"].IsMap() && config["rule-providers"].size() == providers.size(),
             "provider mode must not create providers for fixed managed domains");
-    require(rules.size() >= providers.size() + 9, "provider mode emitted too few rules");
+    require(rules.size() >= providers.size() + 14, "provider mode emitted too few rules");
     for(size_t index = 0; index < providers.size(); index++)
     {
         const ProviderExpectation &expected = providers[index];
@@ -730,7 +820,7 @@ void testProviderModeEmitsAllManagedRuleSets()
                 std::string(expected.Name) + " rule provider URL is wrong");
         require(provider["interval"].as<int>() == service_policy::UpdateInterval,
                 std::string(expected.Name) + " provider interval must be 24 hours");
-        require(rules[index + 8] == std::string("RULE-SET,") + expected.Name + "," + expected.Name,
+        require(rules[index + 13] == std::string("RULE-SET,") + expected.Name + "," + expected.Name,
                 "managed provider rules are not in Binance/OpenAI/Anthropic order");
     }
     const auto match = std::find(rules.cbegin(), rules.cend(), "MATCH,Fallback");
@@ -740,7 +830,7 @@ void testProviderModeEmitsAllManagedRuleSets()
             "provider mode must retain base rules when overwrite_original_rules is false");
     const auto doh_rule = std::find(rules.cbegin(), rules.cend(), "GEOIP,CN,DIRECT,no-resolve");
     require(doh_rule != rules.cend() &&
-            static_cast<size_t>(std::distance(rules.cbegin(), doh_rule)) > providers.size() + 7 && doh_rule < match,
+            static_cast<size_t>(std::distance(rules.cbegin(), doh_rule)) > providers.size() + 12 && doh_rule < match,
             "managed provider rules must remain ahead of the normalized DoH CN rule");
 
     requireYamlProxies(findYamlGroup(config, service_policy::TaiwanGroupName), {"TW01", "REJECT"},
@@ -828,6 +918,16 @@ void testExpandedModeExpandsAllManagedRules()
                "  - DOMAIN-SUFFIX, NGACN.CC ,REJECT\n"
                "  - DOMAIN,nga.178.com,External\n"
                "  - DOMAIN-SUFFIX, NGA.178.COM ,REJECT\n"
+               "  - DOMAIN,aqara.com,External\n"
+               "  - DOMAIN-SUFFIX, AQARA.COM ,REJECT\n"
+               "  - DOMAIN,aqara.cn,External\n"
+               "  - DOMAIN-SUFFIX, AQARA.CN ,REJECT\n"
+               "  - DOMAIN,aqara.com.cn,External\n"
+               "  - DOMAIN-SUFFIX, AQARA.COM.CN ,REJECT\n"
+               "  - DOMAIN,lumiunited.com,External\n"
+               "  - DOMAIN-SUFFIX, LUMIUNITED.COM ,REJECT\n"
+               "  - DOMAIN,aiot-rpc.ankasa.cn,External\n"
+               "  - DOMAIN-SUFFIX, AIOT-RPC.ANKASA.CN ,REJECT\n"
                "  - DOMAIN,ipinfo.cv,DIRECT\n"
                "  - DOMAIN-SUFFIX, IPINFO.CV ,REJECT\n"
                "  - DOMAIN-SUFFIX,notipinfo.cv,External\n"
@@ -841,6 +941,18 @@ void testExpandedModeExpandsAllManagedRules()
                "  - DOMAIN-SUFFIX,nga.178.com.example,External\n"
                "  - DOMAIN-SUFFIX,178.com,External\n"
                "  - DOMAIN,other.178.com,External\n"
+               "  - DOMAIN-SUFFIX,notaqara.com,External\n"
+               "  - DOMAIN-SUFFIX,aqara.com.example,External\n"
+               "  - DOMAIN-SUFFIX,notaqara.cn,External\n"
+               "  - DOMAIN-SUFFIX,aqara.cn.example,External\n"
+               "  - DOMAIN-SUFFIX,notaqara.com.cn,External\n"
+               "  - DOMAIN-SUFFIX,aqara.com.cn.example,External\n"
+               "  - DOMAIN-SUFFIX,notlumiunited.com,External\n"
+               "  - DOMAIN-SUFFIX,lumiunited.com.example,External\n"
+               "  - DOMAIN-SUFFIX,ankasa.cn,External\n"
+               "  - DOMAIN,other.ankasa.cn,External\n"
+               "  - DOMAIN,notaiot-rpc.ankasa.cn,External\n"
+               "  - DOMAIN,aiot-rpc.ankasa.cn.example,External\n"
                "  - GEOIP,CN,OpenAI\n"
                "  - MATCH,Base\n",
         ruleset_content, groups, false, ext));
@@ -853,9 +965,16 @@ void testExpandedModeExpandsAllManagedRules()
             "DOMAIN-SUFFIX,notngabbs.com,External", "DOMAIN-SUFFIX,ngabbs.com.example,External",
             "DOMAIN-SUFFIX,notngacn.cc,External", "DOMAIN-SUFFIX,ngacn.cc.example,External",
             "DOMAIN-SUFFIX,notnga.178.com,External", "DOMAIN-SUFFIX,nga.178.com.example,External",
-            "DOMAIN-SUFFIX,178.com,External", "DOMAIN,other.178.com,External"})
+            "DOMAIN-SUFFIX,178.com,External", "DOMAIN,other.178.com,External",
+            "DOMAIN-SUFFIX,notaqara.com,External", "DOMAIN-SUFFIX,aqara.com.example,External",
+            "DOMAIN-SUFFIX,notaqara.cn,External", "DOMAIN-SUFFIX,aqara.cn.example,External",
+            "DOMAIN-SUFFIX,notaqara.com.cn,External", "DOMAIN-SUFFIX,aqara.com.cn.example,External",
+            "DOMAIN-SUFFIX,notlumiunited.com,External", "DOMAIN-SUFFIX,lumiunited.com.example,External",
+            "DOMAIN-SUFFIX,ankasa.cn,External", "DOMAIN,other.ankasa.cn,External",
+            "DOMAIN,notaiot-rpc.ankasa.cn,External",
+            "DOMAIN,aiot-rpc.ankasa.cn.example,External"})
         require(std::find(rules.cbegin(), rules.cend(), unrelated) != rules.cend(),
-                std::string("expanded mode removed an unrelated NGA-like domain: ") + unrelated);
+                std::string("expanded mode removed an unrelated managed-service-like domain: ") + unrelated);
     requireYamlProxies(findYamlGroup(config, service_policy::MainProxyGroupName), {"REJECT"},
                        "an empty expanded configuration must keep the ipinfo.cv target group fail closed");
 
@@ -871,8 +990,8 @@ void testExpandedModeExpandsAllManagedRules()
         "IP-ASN,20473,OpenAI",
         "DOMAIN-SUFFIX,anthropic.example,Anthropic"
     };
-    require(rules.size() >= expected.size() + 8, "expanded mode emitted too few rules");
-    require(std::equal(expected.cbegin(), expected.cend(), rules.cbegin() + 8),
+    require(rules.size() >= expected.size() + 13, "expanded mode emitted too few rules");
+    require(std::equal(expected.cbegin(), expected.cend(), rules.cbegin() + 13),
             "expanded rules must preserve Binance/OpenAI/Anthropic order and the OpenAI IP-ASN rule");
     const auto match = std::find(rules.cbegin(), rules.cend(), "MATCH,Fallback");
     require(match != rules.cend() && static_cast<size_t>(std::distance(rules.cbegin(), match)) >= expected.size(),
@@ -883,7 +1002,7 @@ void testExpandedModeExpandsAllManagedRules()
             "expanded managed rules must precede retained base MATCH rules");
     const auto doh_rule = std::find(rules.cbegin(), rules.cend(), "GEOIP,CN,DIRECT,no-resolve");
     require(doh_rule != rules.cend() &&
-            static_cast<size_t>(std::distance(rules.cbegin(), doh_rule)) > expected.size() + 7 &&
+            static_cast<size_t>(std::distance(rules.cbegin(), doh_rule)) > expected.size() + 12 &&
             doh_rule < base_match && doh_rule < match,
             "expanded managed rules must remain ahead of the normalized DoH CN rule");
 }
@@ -915,6 +1034,16 @@ void testDisabledRuleGeneratorNormalizesLegacyRulesWithDoh()
                "  - DOMAIN-SUFFIX, NGACN.CC ,REJECT\n"
                "  - DOMAIN,nga.178.com,External\n"
                "  - DOMAIN-SUFFIX, NGA.178.COM ,REJECT\n"
+               "  - DOMAIN,aqara.com,External\n"
+               "  - DOMAIN-SUFFIX, AQARA.COM ,REJECT\n"
+               "  - DOMAIN,aqara.cn,External\n"
+               "  - DOMAIN-SUFFIX, AQARA.CN ,REJECT\n"
+               "  - DOMAIN,aqara.com.cn,External\n"
+               "  - DOMAIN-SUFFIX, AQARA.COM.CN ,REJECT\n"
+               "  - DOMAIN,lumiunited.com,External\n"
+               "  - DOMAIN-SUFFIX, LUMIUNITED.COM ,REJECT\n"
+               "  - DOMAIN,aiot-rpc.ankasa.cn,External\n"
+               "  - DOMAIN-SUFFIX, AIOT-RPC.ANKASA.CN ,REJECT\n"
                "  - DOMAIN,ipinfo.cv,DIRECT\n"
                "  - DOMAIN-SUFFIX, IPINFO.CV ,REJECT\n"
                "  - DOMAIN-SUFFIX,notipinfo.cv,External\n"
@@ -928,6 +1057,18 @@ void testDisabledRuleGeneratorNormalizesLegacyRulesWithDoh()
                "  - DOMAIN-SUFFIX,nga.178.com.example,External\n"
                "  - DOMAIN-SUFFIX,178.com,External\n"
                "  - DOMAIN,other.178.com,External\n"
+               "  - DOMAIN-SUFFIX,notaqara.com,External\n"
+               "  - DOMAIN-SUFFIX,aqara.com.example,External\n"
+               "  - DOMAIN-SUFFIX,notaqara.cn,External\n"
+               "  - DOMAIN-SUFFIX,aqara.cn.example,External\n"
+               "  - DOMAIN-SUFFIX,notaqara.com.cn,External\n"
+               "  - DOMAIN-SUFFIX,aqara.com.cn.example,External\n"
+               "  - DOMAIN-SUFFIX,notlumiunited.com,External\n"
+               "  - DOMAIN-SUFFIX,lumiunited.com.example,External\n"
+               "  - DOMAIN-SUFFIX,ankasa.cn,External\n"
+               "  - DOMAIN,other.ankasa.cn,External\n"
+               "  - DOMAIN,notaiot-rpc.ankasa.cn,External\n"
+               "  - DOMAIN,aiot-rpc.ankasa.cn.example,External\n"
                "  - GEOIP,CN,External\n"
                "  - MATCH,Fallback\n",
         ruleset_content, groups, true, ext));
@@ -945,14 +1086,21 @@ void testDisabledRuleGeneratorNormalizesLegacyRulesWithDoh()
             "DOMAIN-SUFFIX,notngabbs.com,External", "DOMAIN-SUFFIX,ngabbs.com.example,External",
             "DOMAIN-SUFFIX,notngacn.cc,External", "DOMAIN-SUFFIX,ngacn.cc.example,External",
             "DOMAIN-SUFFIX,notnga.178.com,External", "DOMAIN-SUFFIX,nga.178.com.example,External",
-            "DOMAIN-SUFFIX,178.com,External", "DOMAIN,other.178.com,External"})
+            "DOMAIN-SUFFIX,178.com,External", "DOMAIN,other.178.com,External",
+            "DOMAIN-SUFFIX,notaqara.com,External", "DOMAIN-SUFFIX,aqara.com.example,External",
+            "DOMAIN-SUFFIX,notaqara.cn,External", "DOMAIN-SUFFIX,aqara.cn.example,External",
+            "DOMAIN-SUFFIX,notaqara.com.cn,External", "DOMAIN-SUFFIX,aqara.com.cn.example,External",
+            "DOMAIN-SUFFIX,notlumiunited.com,External", "DOMAIN-SUFFIX,lumiunited.com.example,External",
+            "DOMAIN-SUFFIX,ankasa.cn,External", "DOMAIN,other.ankasa.cn,External",
+            "DOMAIN,notaiot-rpc.ankasa.cn,External",
+            "DOMAIN,aiot-rpc.ankasa.cn.example,External"})
         require(std::find(rules.cbegin(), rules.cend(), unrelated) != rules.cend(),
-                std::string("legacy no-generator mode removed an unrelated NGA-like domain: ") + unrelated);
+                std::string("legacy no-generator mode removed an unrelated managed-service-like domain: ") + unrelated);
     requireYamlProxies(findYamlGroup(config, service_policy::MainProxyGroupName), {"REJECT"},
                        "legacy no-generator mode must keep an empty ipinfo.cv target group fail closed");
     const size_t doh_index = ruleIndex(rules, "GEOIP,CN,DIRECT,no-resolve");
     const size_t match_index = ruleIndex(rules, "MATCH,Fallback");
-    require(doh_index > 7 && match_index != std::string::npos && doh_index < match_index,
+    require(doh_index > 12 && match_index != std::string::npos && doh_index < match_index,
             "managed domains must precede the one normalized DoH rule and terminal MATCH in legacy mode");
 }
 
@@ -1016,22 +1164,35 @@ void testScriptModeDirectsManagedDomainsBeforeProviders()
             "script mode must route only deepseek.com and its subdomains DIRECT before providers");
     size_t previous_direct_return = deepseek_direct_return;
     for(const char *domain : {service_policy::NGADomain, service_policy::NGABbsDomain,
-                             service_policy::NGALegacyDomain, service_policy::NGA178Domain})
+                             service_policy::NGALegacyDomain, service_policy::NGA178Domain,
+                             service_policy::AqaraDomain, service_policy::AqaraChinaDomain,
+                             service_policy::AqaraChinaSiteDomain, service_policy::LumiUnitedDomain})
     {
         const size_t root_match = script.find(std::string("host == \"") + domain + "\"");
         const size_t subdomain_match = script.find(std::string("host.endswith(\".") + domain + "\")");
         const size_t unsafe_match = script.find(std::string("host.endswith(\"") + domain + "\")");
-        const size_t nga_direct_return = script.find("return \"DIRECT\"", root_match);
+        const size_t managed_direct_return = script.find("return \"DIRECT\"", root_match);
         require(root_match != std::string::npos && subdomain_match != std::string::npos &&
                 unsafe_match == std::string::npos && previous_direct_return < root_match &&
-                root_match < nga_direct_return && subdomain_match < nga_direct_return &&
-                nga_direct_return < provider_lookup,
+                root_match < managed_direct_return && subdomain_match < managed_direct_return &&
+                managed_direct_return < provider_lookup,
                 std::string("script mode must route only ") + domain + " and its subdomains DIRECT before providers");
-        previous_direct_return = nga_direct_return;
+        previous_direct_return = managed_direct_return;
     }
     require(script.find("host == \"178.com\"") == std::string::npos &&
             script.find("host.endswith(\".178.com\")") == std::string::npos,
             "script mode must not route the entire 178.com domain DIRECT for NGA");
+    const size_t aqara_rpc_match = script.find("host == \"aiot-rpc.ankasa.cn\"");
+    const size_t aqara_rpc_direct_return = script.find("return \"DIRECT\"", aqara_rpc_match);
+    require(aqara_rpc_match != std::string::npos && aqara_rpc_direct_return != std::string::npos &&
+            previous_direct_return < aqara_rpc_match && aqara_rpc_match < aqara_rpc_direct_return &&
+            aqara_rpc_direct_return < provider_lookup &&
+            script.find("host.endswith(\".aiot-rpc.ankasa.cn\")") == std::string::npos &&
+            script.find("host.endswith(\"aiot-rpc.ankasa.cn\")") == std::string::npos &&
+            script.find("host == \"ankasa.cn\"") == std::string::npos &&
+            script.find("host.endswith(\".ankasa.cn\")") == std::string::npos,
+            "script mode must route only the exact Aqara RPC host DIRECT before providers");
+    previous_direct_return = aqara_rpc_direct_return;
     require(ipinfo_root_match != std::string::npos && ipinfo_subdomain_match != std::string::npos &&
             unsafe_suffix_match == std::string::npos,
             "script mode must match only the ipinfo.cv root and dot-delimited subdomains");

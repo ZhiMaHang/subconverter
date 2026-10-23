@@ -215,6 +215,8 @@ https://airport-b.example/subscription
 
 完整 Clash/ClashR 和 Stash 配置会优先为 ToDesk（`todesk.com`）、豆包（`doubao.com`）、DeepSeek（`deepseek.com`）及 NGA（`nga.cn`、`ngabbs.com`、`ngacn.cc`、`nga.178.com`）生成 `DOMAIN-SUFFIX,...,DIRECT` 规则，确保这些主域及其子域直连。NGA 规则不会扩展到其他 `178.com` 域名；同样覆盖展开规则、rule-provider、关闭规则生成和 Clash script 模式。
 
+Aqara 也会优先直连：`aqara.com`、`aqara.cn`、`aqara.com.cn`、`lumiunited.com` 使用 `DOMAIN-SUFFIX` 覆盖主域及子域；大陆 App SDK 接口 `aiot-rpc.ankasa.cn` 使用精确的 `DOMAIN,...,DIRECT` 规则，其他 `ankasa.cn` 主机保留原有策略。这些规则紧随 NGA 规则，覆盖相同输出模式。云服务接口见 [Aqara 官方 API 文档](https://opendoc.aqara.com/en/docs/developmanual/apiIntroduction/APIUsageGuide.html)。
+
 `DOMAIN-SUFFIX,ipinfo.cv,🚀 节点选择` 会紧随这些直连规则，确保 `ipinfo.cv` 主域及子域进入主代理选择组。若外部配置没有可用的 `🚀 节点选择`，会自动创建一个匹配代理节点且空时使用 `REJECT` 的安全组。
 
 换行在请求 URL 中会编码为 `%0A`。生成配置的默认自动更新间隔是 24 小时（`config_update_interval = 86400`）；每次客户端更新时都会重新拉取机场订阅（受 `cache_subscription` 缓存时间限制）。原有 `|` 方式仍然兼容：

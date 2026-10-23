@@ -192,7 +192,7 @@ static bool targetsManagedService(const std::string &rule)
     return fields.size() > 2 && service_policy::isManagedName(std::string(fields[2]));
 }
 
-static bool matchesDomainRule(const std::string &rule, const std::string &domain)
+static bool matchesDomainRule(const std::string &rule, const std::string &domain, bool include_suffix = true)
 {
     string_view_array fields;
     split(fields, rule, ',');
@@ -200,7 +200,7 @@ static bool matchesDomainRule(const std::string &rule, const std::string &domain
         return false;
     const std::string type = toUpper(trim(std::string(fields[0])));
     const std::string value = toLower(trim(std::string(fields[1])));
-    return (type == "DOMAIN" || type == "DOMAIN-SUFFIX") && value == domain;
+    return (type == "DOMAIN" || (include_suffix && type == "DOMAIN-SUFFIX")) && value == domain;
 }
 
 void prioritizeManagedServiceRules(std::vector<std::string> &rules)
@@ -215,12 +215,20 @@ void prioritizeManagedServiceRules(std::vector<std::string> &rules)
                matchesDomainRule(rule, service_policy::NGABbsDomain) ||
                matchesDomainRule(rule, service_policy::NGALegacyDomain) ||
                matchesDomainRule(rule, service_policy::NGA178Domain) ||
+               matchesDomainRule(rule, service_policy::AqaraDomain) ||
+               matchesDomainRule(rule, service_policy::AqaraChinaDomain) ||
+               matchesDomainRule(rule, service_policy::AqaraChinaSiteDomain) ||
+               matchesDomainRule(rule, service_policy::LumiUnitedDomain) ||
+               matchesDomainRule(rule, service_policy::AqaraRpcDomain, false) ||
                matchesDomainRule(rule, service_policy::IPInfoDomain);
     }), rules.end());
     rules.insert(rules.begin(), {service_policy::ToDeskDirectRule, service_policy::DoubaoDirectRule,
                                  service_policy::DeepSeekDirectRule, service_policy::NGADirectRule,
                                  service_policy::NGABbsDirectRule, service_policy::NGALegacyDirectRule,
-                                 service_policy::NGA178DirectRule, service_policy::IPInfoProxyRule});
+                                 service_policy::NGA178DirectRule, service_policy::AqaraDirectRule,
+                                 service_policy::AqaraChinaDirectRule, service_policy::AqaraChinaSiteDirectRule,
+                                 service_policy::LumiUnitedDirectRule, service_policy::AqaraRpcDirectRule,
+                                 service_policy::IPInfoProxyRule});
 }
 
 void prioritizeManagedServiceRules(YAML::Node &base_rule, bool new_field_name)

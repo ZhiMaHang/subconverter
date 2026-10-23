@@ -77,6 +77,8 @@ To merge subscriptions and single-node links, put one source on each line before
 
 Full Clash/ClashR and Stash configurations prioritize direct routing for ToDesk (`todesk.com`), Doubao (`doubao.com`), DeepSeek (`deepseek.com`), and NGA (`nga.cn`, `ngabbs.com`, `ngacn.cc`, `nga.178.com`). Each domain uses a `DOMAIN-SUFFIX,...,DIRECT` rule covering the root and its subdomains; other `178.com` domains are unaffected by the NGA policy. This applies to expanded rules, rule providers, disabled rule generation, and Clash script mode.
 
+Aqara also connects directly through `DOMAIN-SUFFIX` rules for `aqara.com`, `aqara.cn`, `aqara.com.cn`, and `lumiunited.com`. The mainland App SDK endpoint `aiot-rpc.ankasa.cn` uses an exact `DOMAIN,...,DIRECT` rule; other `ankasa.cn` hosts retain their existing policies. These rules follow the NGA rules and apply to the same output modes. The endpoints are documented in the [official Aqara API guide](https://opendoc.aqara.com/en/docs/developmanual/apiIntroduction/APIUsageGuide.html).
+
 `DOMAIN-SUFFIX,ipinfo.cv,🚀 节点选择` follows them, routing the `ipinfo.cv` root domain and subdomains through the main proxy selection group. If an external configuration lacks a usable `🚀 节点选择` group, a proxy-matching fallback group that rejects when empty is created automatically.
 
 Example:

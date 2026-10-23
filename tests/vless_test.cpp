@@ -201,7 +201,7 @@ void testStashFullConfiguration()
             "Stash full configuration is missing proxy groups");
     require(config["rules"].IsSequence() && config["rules"].size() > 0,
             "Stash full configuration is missing rules");
-    require(config["rules"].size() >= 8 &&
+    require(config["rules"].size() >= 13 &&
                 config["rules"][0].as<std::string>() == "DOMAIN-SUFFIX,todesk.com,DIRECT" &&
                 config["rules"][1].as<std::string>() == "DOMAIN-SUFFIX,doubao.com,DIRECT" &&
                 config["rules"][2].as<std::string>() == "DOMAIN-SUFFIX,deepseek.com,DIRECT" &&
@@ -209,7 +209,12 @@ void testStashFullConfiguration()
                 config["rules"][4].as<std::string>() == "DOMAIN-SUFFIX,ngabbs.com,DIRECT" &&
                 config["rules"][5].as<std::string>() == "DOMAIN-SUFFIX,ngacn.cc,DIRECT" &&
                 config["rules"][6].as<std::string>() == "DOMAIN-SUFFIX,nga.178.com,DIRECT" &&
-                config["rules"][7].as<std::string>() == "DOMAIN-SUFFIX,ipinfo.cv,🚀 节点选择",
+                config["rules"][7].as<std::string>() == "DOMAIN-SUFFIX,aqara.com,DIRECT" &&
+                config["rules"][8].as<std::string>() == "DOMAIN-SUFFIX,aqara.cn,DIRECT" &&
+                config["rules"][9].as<std::string>() == "DOMAIN-SUFFIX,aqara.com.cn,DIRECT" &&
+                config["rules"][10].as<std::string>() == "DOMAIN-SUFFIX,lumiunited.com,DIRECT" &&
+                config["rules"][11].as<std::string>() == "DOMAIN,aiot-rpc.ankasa.cn,DIRECT" &&
+                config["rules"][12].as<std::string>() == "DOMAIN-SUFFIX,ipinfo.cv,🚀 节点选择",
             "Stash full configuration must put the managed direct and proxy rules first");
     require(config["mode"].as<std::string>() == "rule",
             "Stash full configuration must default to rule mode");
