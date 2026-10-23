@@ -75,7 +75,7 @@ http://127.0.0.1:25500/sub?target=%TARGET%&url=%URL%&config=%CONFIG%
 
 To merge subscriptions and single-node links, put one source on each line before URL encoding. Newlines become `%0A` in the request. Generated configurations use a 24-hour update interval by default (`config_update_interval = 86400`), and each client refresh fetches the airport subscriptions again subject to `cache_subscription`. The existing `|` separator and repeated `url` parameters are also supported.
 
-Full Clash/ClashR configurations normalize `DOMAIN-SUFFIX,todesk.com,DIRECT`, `DOMAIN-SUFFIX,doubao.com,DIRECT`, and `DOMAIN-SUFFIX,deepseek.com,DIRECT` as the first three routing rules, so ToDesk, Doubao, and DeepSeek root domains and their subdomains always connect directly. This applies to expanded rules, rule providers, disabled rule generation, and Clash script mode.
+Full Clash/ClashR and Stash configurations prioritize direct routing for ToDesk (`todesk.com`), Doubao (`doubao.com`), DeepSeek (`deepseek.com`), and NGA (`nga.cn`, `ngabbs.com`, `ngacn.cc`, `nga.178.com`). Each domain uses a `DOMAIN-SUFFIX,...,DIRECT` rule covering the root and its subdomains; other `178.com` domains are unaffected by the NGA policy. This applies to expanded rules, rule providers, disabled rule generation, and Clash script mode.
 
 `DOMAIN-SUFFIX,ipinfo.cv,🚀 节点选择` follows them, routing the `ipinfo.cv` root domain and subdomains through the main proxy selection group. If an external configuration lacks a usable `🚀 节点选择` group, a proxy-matching fallback group that rejects when empty is created automatically.
 
