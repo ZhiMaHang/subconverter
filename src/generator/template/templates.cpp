@@ -274,6 +274,16 @@ const std::string clash_script_template = R"(def main(ctx, md):
     return "DIRECT"
   if host == "nga.178.com" or host.endswith(".nga.178.com"):
     return "DIRECT"
+  if host == "aqara.com" or host.endswith(".aqara.com"):
+    return "DIRECT"
+  if host == "aqara.cn" or host.endswith(".aqara.cn"):
+    return "DIRECT"
+  if host == "aqara.com.cn" or host.endswith(".aqara.com.cn"):
+    return "DIRECT"
+  if host == "lumiunited.com" or host.endswith(".lumiunited.com"):
+    return "DIRECT"
+  if host == "aiot-rpc.ankasa.cn":
+    return "DIRECT"
   if host == "ipinfo.cv" or host.endswith(".ipinfo.cv"):
     return "🚀 节点选择"
 {% for rule in rules %}
